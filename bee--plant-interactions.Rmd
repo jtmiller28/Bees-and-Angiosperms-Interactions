@@ -1,0 +1,27 @@
+---
+title: "Plants-and-Bees"
+author: "JT Miller"
+date: '2022-07-06'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Necessary packages
+```{r}
+library(tidyverse)
+
+```
+### Load in the Globi-Interaction database 
+```{r}
+globi_bee_data <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/global-bee-interaction-data/all_bee_data.csv", quote = "") # Disable quoting might be necessary for this dataset due to EOF warning. Solution found here: https://stackoverflow.com/questions/17414776/read-csv-warning-eof-within-quoted-string-prevents-complete-reading-of-file
+```
+
+### Data Exploration
+Lets first figure out what we're dealing with
+```{r}
+names(globi_bee_data)
+```
+Appears that either "sourceBodyPartName" or "targetBodyPartName" will be important to identify whether it was actually a flower visitation interaction as well as "interactionTypeName". There is also "decimalLatitude" and "decimalLongitude" so we should be able to map it down to only include interactions that occur in California. 
