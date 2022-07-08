@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ### Necessary packages
 ```{r}
 library(tidyverse)
-
+library(sf)
 ```
 ### Load in the Globi-Interaction database 
 ```{r}
@@ -24,4 +24,226 @@ Lets first figure out what we're dealing with
 ```{r}
 names(globi_bee_data)
 ```
-Appears that either "sourceBodyPartName" or "targetBodyPartName" will be important to identify whether it was actually a flower visitation interaction as well as "interactionTypeName". There is also "decimalLatitude" and "decimalLongitude" so we should be able to map it down to only include interactions that occur in California. 
+Appears that either "sourceBodyPartName" or "targetBodyPartName" will be important to identify whether it was actually a flower visitation interaction as well as "interactionTypeName". There is also "decimalLatitude" and "decimalLongitude" + "localityId/localityName" so we should be able to map it down to only include interactions that occur in California.
+
+First, lets compare the body part fields
+```{r}
+globi_bee_data %>% 
+  select(sourceBodyPartName, targetBodyPartName) %>% # sourceBodyPartName appears to be unhelpful, 12 unique values
+  count(sourceBodyPartName, sort = TRUE)
+
+globi_bee_data %>% 
+  select(sourceBodyPartName, targetBodyPartName) %>% 
+  count(targetBodyPartName, sort = TRUE)
+
+# It appears that 547,319 interactions are lacking a specified interaction
+
+# For a plant-pollinator interaction, we want Flowers, flower, el polen, la flor, pollen, Pollen, stigma, sexual column(?), reproductive parts of flowers, pollen and nectar in nest cell(?)
+
+# Check out the weirder ones to see if we want to include them
+globi_bee_data %>% 
+  select(targetBodyPartName, targetTaxonName, interactionTypeName) %>% 
+  filter(targetBodyPartName == "sexual column") %>% 
+  count(targetTaxonName)   # Here we're using targetTaxonName since it appears the other option 'species' isn't filled
+  
+
+# Alfalfa!
+globi_bee_data %>% 
+  select(targetBodyPartName, targetTaxonName, interactionTypeName) %>% 
+  filter(targetBodyPartName == "sexual column") %>% 
+  count(interactionTypeName)
+
+# Well it seems we should probably keep this. sexual column
+
+####### pollen and nectar in nest cell ########
+globi_bee_data %>% 
+  select(targetBodyPartName, targetTaxonName, interactionTypeName) %>% 
+  filter(targetBodyPartName == "pollen and nectar in nest cell") %>% 
+  count(targetTaxonName)   # Here we're using targetTaxonName since it appears the other option 'species' isn't filled
+  
+
+# Osmia, looks like parasitic bees. 
+globi_bee_data %>% 
+  select(targetBodyPartName, targetTaxonName, interactionTypeName) %>% 
+  filter(targetBodyPartName == "pollen and nectar in nest cell") %>% 
+  count(interactionTypeName)
+
+# So lets disclude pollen and nectar in nest cell from the fields. 
+
+
+### Lets also check whether interactionTypeName is filled out more then targetBodyPartName
+globi_bee_data %>% 
+  select(interactionTypeName, targetBodyPartName) %>% 
+  count(interactionTypeName, sort = TRUE)
+
+# Oh very nice theres a pollinates field. 11,738 cases which is much higher then our previous 3,469
+
+```
+So it appears that the targetBodyPartName is left blank more often then the interaction type name field. pollinates is probably fine to use at least for now, but its worth considering expanding our query to visitsFlowersOf as well as making our query more robust by only using listed body part interactions. 
+
+For now lets looks at just pollination data. 
+```{r}
+globi_pollinators <- globi_bee_data %>% 
+  filter(interactionTypeName == "pollinates")
+
+globi_pollinators %>% 
+  distinct(targetTaxonName, keep.all = TRUE) # hmm 2,365 species, though this would require some cleaning considering there is some specified only to the genus level
+
+### One problem at a time, lets grep out any http string that shows up in the targetTaxonName 
+gpg <- globi_pollinators[!grepl("http", globi_pollinators$targetTaxonName),]
+
+# Check our new df 
+
+unique(gpg$targetTaxonName) # Well we don't want null nor do we want "\ "Abundance\"\"\"
+
+gpd <- globi_pollinators[!grepl("http|\"Abundance\"\"\"|null|N/A N/A", globi_pollinators$targetTaxonName),]
+
+unique(gpd$targetTaxonName)
+
+check <- gpd %>% 
+  distinct(targetTaxonName, keep.all = TRUE)
+
+### New issue, targetTaxonName isn't always the plant, its sometimes the bee instead...So clean up sourceTaxonName? 
+
+unique(gpd$sourceTaxonName)
+
+gps <- gpd[!grepl("http|\"Abundance\"\"\"|null|N/A N/A", gpd$sourceTaxonName),]
+```
+
+Now we're at an issue, the interaction can go either way between sourceTaxonName <-> targetTaxonName as far as the bee and plant is concerned...
+  *Fixes: We can code up a logical output that detects Hymenoptera in the sourceTaxonName field and outputs if found TRUE and if not found returns FALSE, and then go from there by creating new columns with PollinatingBee and PollinatedPlant 
+  
+```{r}
+gps %>%  
+  distinct(sourceTaxonOrderName) %>% 
+  select(sourceTaxonOrderName)
+
+# Well thats odd, how did these guys make it into our dataset?
+
+gps %>% 
+  select(sourceTaxonOrderName) %>% 
+  count(sourceTaxonOrderName, sort = TRUE)
+
+gps %>% 
+  select(sourceTaxonOrderName, targetTaxonOrderName) %>% 
+  filter(targetTaxonOrderName == "Cheilostomatida")
+
+good_sources <- c("Hymenoptera", "Malvales", "Asterales", "Caryophyllales")
+# Well small instances of them made it in...interesting. 
+
+gps %>% 
+  select(sourceTaxonOrderName, targetTaxonOrderName, interactionTypeName) %>% 
+  filter(sourceTaxonOrderName == "Lepidoptera")
+
+### Well Regardless, we need to drop these ones
+
+gpl <- gps %>% 
+  filter(sourceTaxonOrderName %in% good_sources)
+
+gpl %>% 
+  select(sourceTaxonOrderName) %>% 
+  count(sourceTaxonOrderName, sort = TRUE)
+
+### What are those connections of plants to? Lets hope its bees...
+
+test_sources <- c("Malvales", "Asterales", "Caryophyllales")
+
+gpl %>% 
+  filter(sourceTaxonOrderName %in% test_sources) %>% 
+  select(sourceTaxonOrderName, targetTaxonOrderName) # Good that checks out. 
+
+### And check the targetTaxonOrderName
+
+gpl %>% 
+  select(targetTaxonOrderName) %>% 
+  count(targetTaxonOrderName, sort = TRUE)
+
+bad_targets <- c("Hymenoptera", "Lepidoptera", "Coleoptera", "Diptera", "Hemiptera", "Chondrosida", "Littorinimorpha", "Cyrtolophosidida", "Leptothecata", "Lucinida", "Mantodea", "Orthoptera", "Aplousobranchia", "Capnodiales", "Cheilostomatida", "Decapoda", "Diplostraca", "Eunotiaceae", "Araneae", "Afrosoricida") 
+
+gph <- gpl %>% 
+  filter(!targetTaxonOrderName %in% bad_targets ) %>% 
+  filter(!targetTaxonOrderName == "") # Also the blank space. 
+
+gph %>% 
+  select(targetTaxonOrderName) %>% 
+  count(targetTaxonOrderName, sort = TRUE)
+
+### Lets also take a closer look at our "bad_targets" 
+
+weird_oddities <- gps %>% 
+  filter(targetTaxonOrderName %in% bad_targets)
+
+```
+Maybe we'll figure out how to swap those 4 observations that are source/target swapped, but for now lets get the rest of the analysis out of the way.
+
+What if we just look at California's Interactions?
+```{r}
+gph %>% 
+  select(decimalLongitude, decimalLatitude)
+
+# Bring in the shapefile of California
+eco_map <- sf::read_sf("/home/jt-miller/Documents/CCBER/occurrence-maps/filter_polygon/cali_ecoregions_3/ca_eco_l3.shp") %>% 
+  sf::st_transform('+proj=longlat +datum=WGS84')
+
+interactions_w_coords <- gph %>% 
+  dplyr::filter(!is.na(decimalLatitude)|!is.na(decimalLongitude)) %>% 
+  dplyr::filter(!(decimalLongitude == "")) %>% 
+  dplyr::filter(!(decimalLatitude == ""))
+
+interactions_w_coords_w_crs <- st_as_sf(interactions_w_coords, coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326)
+
+interactions_bounded <-interactions_w_coords_w_crs[eco_map,]
+
+### Well we will not be only using interactions bounded to california considering there is only 5...
+```
+
+*What plants are listed as pollinated so we can generate a occurrence query?*
+```{r}
+gph %>% 
+  distinct(targetTaxonPhylumName)
+
+target_fam_df <- gph %>% 
+  distinct(targetTaxonFamilyName)
+
+as.data.frame(sapply(target_fam_df, function(targetTaxonFamilyName) gsub("\"", "", targetTaxonFamilyName)))
+
+xy.list <- list(target_fam_df)
+
+
+print(xy.list)
+
+#xy.list.new <- noquote(xy.list)
+
+for(i in 1:length(xy.list)){
+  write.table(data.frame(xy.list[[i]]),file='test.txt',append=TRUE, row.names=FALSE, quote = FALSE)
+  cat('\n',file='test.txt',append = TRUE)  
+}
+
+
+```
+
+
+Next, we want to produce some summaries on pollination
+*Is pollinators interaction conserved at the genus level of the plants?*
+```{r}
+
+#### Set up #####
+
+# First we need to extract the genus for each plant.
+gph$target_genus_string <- str_extract(gph$targetTaxonName, "(\\w+)")
+
+# Save some work and do this for the bees as well
+
+gph$source_genus_string <- str_extract(gph$sourceTaxonName, "(\\w+)")
+
+names(gph)
+
+#### Analysis ####
+
+Plant_genus <- gph %>% 
+  group_by(target_genus_string) %>% 
+  count(sourceTaxonName)
+
+  
+```
+
