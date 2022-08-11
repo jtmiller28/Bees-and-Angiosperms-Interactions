@@ -1,0 +1,73 @@
+---
+title: "ClimatePullMarkdown"
+author: "JT Miller"
+date: "2022-08-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## A remake of my previous climateNA-Ecoregions markdown due to fatal issues associated with the markdown. 
+
+Necessary Libraries
+```{r}
+library(tidyverse)
+library(sf)
+library(leaflet)
+library(zoom)
+```
+
+Load in the shapefiles 
+```{r}
+# Bring in the shape file for the North American Continent, assign it the WGS84 coordinate reference system
+NA_eco_map <- sf::read_sf("/home/jt-miller/Documents/CCBER/occurrence-maps/filter_polygon/ecoregions-lvl3-NA/NA_CEC_Eco_Level3/NA_CEC_Eco_Level3.shp") %>% 
+  sf::st_transform('+proj=longlat +datum=WGS84') 
+```
+
+Filter out the eco_map to only include the ecoregions of interest for this study (All of those that touch California)
+```{r}
+cali_ecoregions <- NA_eco_map %>% 
+  filter(NA_L3NAME %in% c("Northern Basin and Range", "Central Basin and Range", "Mojave Basin and Range", "Sonoran Desert", "Baja California Desert", "California Coastal Sage, Chaparral, and Oak Woodlands", "Central California Valley", "Southern and Baja California Pine-Oak Mountains", "Sierra Nevada", "Klamath Mountains", "Coast Range", "Cascades", "Eastern Cascades Slopes and Foothills"))
+
+# Make a california boundary shp
+
+cali_boundary <- sf::read_sf("/home/jt-miller/Documents/CCBER/occurrence-maps/filter_polygon/Cali-Border/ca-state-boundary/CA_State_TIGER2016.shp") %>% 
+  sf::st_transform('+proj=longlat +datum=WGS84')
+
+# Make a color palette 
+colpal_ext <- colorFactor(c("#a6cee3", "#1f78b4", "#b2df8a", "#33a02c", "#fb9a99", "#e31a1c", "#fdbf6f", "#ff7f00", "#cab2d6", "#6a3d9a", "#ffff99", "#b15928"), cali_ecoregions$NA_L3NAME)
+```
+
+
+# Use the sf package to create even spaced 4x4 (km) grid throughout our ecoregion shapefiles
+```{r}
+ecoregions_gridded <- st_make_grid(
+  cali_ecoregions,
+  what = "centers"
+)
+
+# Using https://stackoverflow.com/questions/53789313/creating-an-equal-distance-spatial-grid-in-r as reference
+
+cali_ecoregions_crs <- cali_ecoregions %>% 
+  st_transform(4326)
+
+grid_spacing <- 0.04 # The conversion for degrees is 0.01 = 1.11km, therefore the 4/1.1 * 0.01 = 0.03636
+
+gridded_polygon <- st_make_grid(cali_ecoregions, square = T, what = "centers", cellsize = c(grid_spacing,grid_spacing)) %>% 
+  st_sf()
+
+bounded_grid <- gridded_polygon[cali_ecoregions_crs,]
+
+measurements <- bounded_grid %>%
+  mutate(
+    lead = geometry[row_number() + 1],
+    dist = st_distance(geometry, lead, by_element = T)) %>% 
+  mutate(km_dist = dist/4000)
+
+bounded_grid_sep <- bounded_grid %>%
+  dplyr::mutate(lat = sf::st_coordinates(.)[,2],
+                lon = sf::st_coordinates(.)[,1])
+
+```
