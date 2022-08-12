@@ -19,6 +19,7 @@ library(leaflet)
 library(zoom)
 library(elevatr)
 library(sp)
+library(car)
 ```
 
 Load in the shapefiles 
@@ -341,6 +342,75 @@ cali_grid_elv <- cali_elv_df %>%
 ```
 Write to a .csv
 ```{r}
-write.csv(cali_grid, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-grid-elv-pull.csv", row.names = FALSE)
+write.csv(cali_grid_elv, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-grid-elv-pull.csv", row.names = FALSE)
 ```
+
+Ran through climateNA to retrieve climatic info for the state of california. 
+Now lets test if there is a difference between including and not including elevation data.
+```{r}
+cali_climate_data <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-grid-pull2_Normal_1961_1990Y.csv")
+cali_climate_data_w_elv <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-grid-elv-pull2_Normal_1961_1990Y.csv")
+```
+
+Some info on abbrievations 
+MAT = mean annual temp (Celsius for all)
+MWMT = mean warmest month temp
+MCMT = mean coldest month temp
+TD = Temp diff between MWMT and MCMT, or continentality
+MAP = mean annual percipitation (mm)
+MSP = May to Sept percipitation (mm)
+AHM = annual heat-moisture index (MAT +10)/(MAP/1000)
+SHM = summer heat-moisture index (MWMT)/(MSP/1000)
+
+Derived vars
+DD5 = degree-days above 5 degrees, growing degree-days
+MAR = mean annual solar radiation
+
+There are plenty more, but for the purpose of this comparison lets compare MAT of the two datasets 
+```{r}
+ccd <- cali_climate_data %>% 
+  select(ecoRegion, Latitude, Longitude, Elevation, MAT, MWMT, MCMT, MAP, MSP) %>% 
+  add_column(dataType = "NoElevation")
+
+ccde <- cali_climate_data_w_elv %>% 
+  select(ecoRegion, Latitude, Longitude, Elevation, MAT, MWMT, MCMT, MAP, MSP) %>% 
+  add_column(dataType = "WithElevation")
+```
+
+Bring the data together into on df
+```{r}
+comparison_df <- merge(ccd, ccde, by = c("Latitude", "Longitude"))
+
+comparison <- comparison_df %>% 
+  rename(MAT = MAT.x) %>% 
+  rename(MATE = MAT.y) %>% 
+  rename(ecoRegion = ecoRegion.x) %>% 
+  rename(ecoRegionE = ecoRegion.y)
+
+comparison %>% 
+  group_by(ecoRegion) %>% 
+  summarise(mean(MAT), mean(MWMT.x), mean(MCMT.x), mean(MAP.x), mean(MSP.x))
+
+comparison %>% 
+  group_by(ecoRegionE) %>% 
+  summarise(mean(MATE), mean(MWMT.y), mean(MCMT.y), mean(MAP.y), mean(MSP.y))
+
+# There is a difference, however, is it significant? 
+
+# Check for normality and then conduct 2 sample t-tests to judge whether there is a significant difference between the two methodologies for the selected area. 
+ggplot(comparison, aes(x=MAT)) +
+  geom_histogram(binwidth = 1) #+
+  #facet_grid(ecoRegion ~ .)
+
+ggplot(comparison, aes(x=MATE)) +
+  geom_histogram(binwidth = 1) 
+
+qqPlot(comparison$MAT)
+SN <- comparison %>% 
+  filter(ecoRegion == "Sierra_Nevadas")
+
+shapiro.test(comparison$MAT)
+  
+```
+
 
