@@ -17,6 +17,8 @@ library(tidyverse)
 library(sf)
 library(leaflet)
 library(zoom)
+library(elevatr)
+library(sp)
 ```
 
 Load in the shapefiles 
@@ -43,11 +45,6 @@ colpal_ext <- colorFactor(c("#a6cee3", "#1f78b4", "#b2df8a", "#33a02c", "#fb9a99
 
 # Use the sf package to create even spaced 4x4 (km) grid throughout our ecoregion shapefiles
 ```{r}
-ecoregions_gridded <- st_make_grid(
-  cali_ecoregions,
-  what = "centers"
-)
-
 # Using https://stackoverflow.com/questions/53789313/creating-an-equal-distance-spatial-grid-in-r as reference
 
 cali_ecoregions_crs <- cali_ecoregions %>% 
@@ -55,7 +52,7 @@ cali_ecoregions_crs <- cali_ecoregions %>%
 
 grid_spacing <- 0.04 # The conversion for degrees is 0.01 = 1.11km, therefore the 4/1.1 * 0.01 = 0.03636
 
-gridded_polygon <- st_make_grid(cali_ecoregions, square = T, what = "centers", cellsize = c(grid_spacing,grid_spacing)) %>% 
+gridded_polygon <- st_make_grid(cali_ecoregions_crs, square = T, what = "centers", cellsize = c(grid_spacing,grid_spacing)) %>% 
   st_sf()
 
 bounded_grid <- gridded_polygon[cali_ecoregions_crs,]
@@ -70,4 +67,280 @@ bounded_grid_sep <- bounded_grid %>%
   dplyr::mutate(lat = sf::st_coordinates(.)[,2],
                 lon = sf::st_coordinates(.)[,1])
 
+
+first_hun <- measurements[1:100, ]
+
+plot(st_geometry(first_hun))
 ```
+Adding in elevation to each of these with the package elevatr,
+Accesses USGS elevation point data query service to extract elevation data (US only?)
+```{r}
+# The fxn get_elev_point() requires a data.frame with x = longitude and y = latitude 
+
+# Reformat the dataframe a bit in order to accomidate this fxn 
+reordered_df <- bounded_grid_sep %>% 
+  rename(latitude = lat) %>% 
+  rename(longitude = lon) %>% 
+  st_drop_geometry() %>% 
+  relocate(longitude, .before = latitude)
+
+# Assign CRS
+prj_dd <- "EPSG:4326"
+
+
+
+# Use get_elev_point()
+df_elevation_epqs <- get_elev_point(reordered_df, prj = prj_dd, src = "epqs")
+
+# Convert back to a traditional df 
+normal_df <- as.data.frame(df_elevation_epqs)
+
+# Understand how much of our data is NA for elevation
+nas <- normal_df %>% 
+  filter(is.na(elevation))
+# It appears the minority of the data is NA, lets take a look at where the data is recorded as not having elevation
+
+spatial_df <- st_as_sf(nas, coords = c('coords.x1', 'coords.x2'), crs = 4326, remove = FALSE)
+
+all_df <- st_as_sf(normal_df, coords = c('coords.x1', 'coords.x2'), crs = 4326, remove = FALSE)
+
+plot(st_geometry(spatial_df))
+plot(st_geometry(cali_ecoregions_crs), add = T) # It appears that it does in fact not cover any elevation data that is outside the US. 
+
+plot(st_geometry(all_df))
+plot(st_geometry(all_df), add = T)
+
+# 
+```
+
+For a bit of elevation visualization, lets look at a raster of our ecoregions, this AWS pull also allows to view outside the US. 
+```{r}
+df_elevation_aws <- get_elev_point(reordered_df, prj = prj_dd, src = "aws")
+
+data.frame(df_elevation_aws)
+
+aws_elv_df <- as.data.frame(df_elevation_aws)
+
+aws_elv_df 
+
+# Lets judge how different these two modes of measuring elevation are
+epqs_elv_df <- normal_df
+comparison_df <- merge(epqs_df, aws_elv_df, by = c("coords.x1", "coords.x2"))
+
+# Note x = epqs and y = aws
+
+# Remove rows that are NAs since they are not comparable 
+comparison_df <- comparison_df %>% 
+  filter(!is.na(elevation.x))
+
+# And compare
+comparison_df %>% 
+  mutate(difference_meters = abs(elevation.x - elevation.y)) %>% 
+  summarize(total_dif_meters = sum(difference_meters))
+
+# 3548876
+
+# Adjust zoom level
+df_elevation_aws_z.6 <- get_elev_point(reordered_df, prj = prj_dd, src = "aws", z = 6)
+
+comparison_df <- merge(epqs_df, df_elevation_aws_z.6, by = c("coords.x1", "coords.x2"))
+
+comparison_df <- comparison_df %>% 
+  filter(!is.na(elevation.x))
+
+# And compare
+comparison_df %>% 
+  mutate(difference_meters = abs(elevation.x - elevation.y)) %>% 
+  summarize(total_dif_meters = sum(difference_meters))
+# 2238193, difference went down by approx 37%
+
+# Adjust zoom level
+df_elevation_aws_z.7 <- get_elev_point(reordered_df, prj = prj_dd, src = "aws", z = 7)
+
+comparison_df <- merge(epqs_df, df_elevation_aws_z.7, by = c("coords.x1", "coords.x2"))
+
+comparison_df <- comparison_df %>% 
+  filter(!is.na(elevation.x))
+
+# And compare
+comparison_df %>% 
+  mutate(difference_meters = abs(elevation.x - elevation.y)) %>% 
+  summarize(total_dif_meters = sum(difference_meters))
+#1262695 difference went down by approx 64%
+
+df_elevation_aws_z.8 <- get_elev_point(reordered_df, prj = prj_dd, src = "aws", z = 8)
+
+### Comparison fxn since I hate copy-paste
+elev_dif_comparer <- function(x, y){
+  comparison_df <- merge(x, y, by = c("coords.x1", "coords.x2")) 
+  comparison_df <- comparison_df %>% 
+    filter(!is.na(elevation.x))
+  results <- comparison_df %>% 
+  mutate(difference_meters = abs(abs(elevation.x) - abs(elevation.y))) %>% 
+  summarize(total_dif_meters = sum(difference_meters)) %>% 
+    mutate(percent.diff.epqs.zoom =  (total_dif_meters/3548876) *100)
+  return(results)
+  
+}
+
+elev_dif_comparer(epqs_df, df_elevation_aws_z.8)
+# 816707.7
+df_elevation_aws_z.9 <- get_elev_point(reordered_df, prj = prj_dd, src = "aws",serial = TRUE, z = 9)
+
+elev_dif_comparer(epqs_df, df_elevation_aws_z.9)
+
+df_elevation_aws_z.10 <- get_elev_point(reordered_df, prj = prj_dd, src = "aws",serial = TRUE, z = 10)
+
+df_elv_norm <- as.data.frame(df_elevation_aws_z.10)
+
+elev_dif_comparer(epqs_df, df_elevation_aws_z.10)
+
+
+
+```
+### We also should see if we're justified in adding elevation data to the climate data pull (i.e. does it make a difference in climatic averages across the ecoregions that we are interested in?). 
+
+As a test, lets just use Cali's bounded ecoregions and do a pull with and without elevation data. (The elevation data outside the US using the aws still has up to 7% difference from USGS's elevation data, so its important that we justify the usage of it for the research.)
+
+Load in Cali ecoregion shp files
+```{r}
+eco_map <- sf::read_sf("/home/jt-miller/Documents/CCBER/occurrence-maps/filter_polygon/cali_ecoregions_3/ca_eco_l3.shp") %>% 
+  sf::st_transform('+proj=longlat +datum=WGS84') 
+```
+
+Break the ecoregions into a 4x4 grid matrix for sample points
+# Use the sf package to create even spaced 4x4 (km) grid throughout our ecoregion shapefiles
+```{r}
+
+
+# Using https://stackoverflow.com/questions/53789313/creating-an-equal-distance-spatial-grid-in-r as reference
+
+eco_map_crs <- eco_map %>% 
+  st_transform(4326)
+
+grid_spacing <- 0.04 # The conversion for degrees is 0.01 = 1.11km, therefore the 4/1.1 * 0.01 = 0.03636 ~ 0.04
+
+gridded_polygon <- st_make_grid(eco_map_crs, square = T, what = "centers", cellsize = c(grid_spacing,grid_spacing)) %>% 
+  st_sf()
+
+cali_bounded_grid <- gridded_polygon[eco_map_crs,]
+
+cali_measurements <- cali_bounded_grid %>%
+  mutate(
+    lead = geometry[row_number() + 1],
+    dist = st_distance(geometry, lead, by_element = T)) %>% 
+  mutate(km_dist = dist/4000)
+
+cali_bounded_grid_sep <- cali_bounded_grid %>%
+  dplyr::mutate(lat = sf::st_coordinates(.)[,2],
+                lon = sf::st_coordinates(.)[,1])
+
+cali_first_hun <- cali_measurements[1:100, ]
+
+plot(st_geometry(cali_first_hun))
+
+plot(st_geometry(cali_bounded_grid))
+```
+Format this for usage in climateNA standard
+```{r}
+cali_grid <- cali_bounded_grid_sep %>% 
+  add_column(occurrenceType = NA) %>% 
+  add_column(ecoRegion = NA) %>% 
+  add_column(el = ".") %>% 
+  relocate(occurrenceType, .before = lat) %>% 
+  relocate(ecoRegion, .before = occurrenceType)
+
+# Lets fill those ecoregions for simplicity
+
+Coast_Range <- eco_map[1,]
+Central_Basin_and_Range <- eco_map[2,]
+Mojave_Basin_and_Range <- eco_map[3,]
+Cascades <- eco_map[4,]
+Sierra_Nevadas <- eco_map[5,]
+Cali_Coastal_Sage_Chap_Oak_Woodlands1 <- eco_map[6,]
+Central_Cali_Valley <- eco_map[7,]
+Klamath_Mountains <- eco_map[8,]
+Southern_and_Baja_Cali_PineOak_Mounts <- eco_map[9,]
+Northern_Basin_and_Range <- eco_map[10,]
+Sonoran_Desert <- eco_map[11,]
+Cali_Coastal_Sage_Chap_Oak_Woodlands2 <- eco_map[12,]
+Eastern_Cascades_Slopes_and_Foothills <- eco_map[13,]
+
+Coast_Range_points <- cali_grid[Coast_Range,]
+Central_Basin_and_Range_points <- cali_grid[Central_Basin_and_Range,]
+Mojave_Basin_and_Range_points <- cali_grid[Mojave_Basin_and_Range,]
+Cascades_points <- cali_grid[Cascades,]
+Sierra_Nevadas_points <- cali_grid[Sierra_Nevadas,]
+Cali_Coastal_Sage_Chap_Oak_Woodlands1_points <- cali_grid[Cali_Coastal_Sage_Chap_Oak_Woodlands1,]
+Central_Cali_Valley_points <- cali_grid[Central_Cali_Valley,]
+Klamath_Mountains_points <- cali_grid[Klamath_Mountains,]
+Southern_and_Baja_Cali_PineOak_Mounts_points <- cali_grid[Southern_and_Baja_Cali_PineOak_Mounts,]
+Northern_Basin_and_Range_points <- cali_grid[Northern_Basin_and_Range,]
+Sonoran_Desert_points <- cali_grid[Sonoran_Desert,]
+Cali_Coastal_Sage_Chap_Oak_Woodlands2_points <- cali_grid[Cali_Coastal_Sage_Chap_Oak_Woodlands2,]
+Eastern_Cascades_Slopes_and_Foothills_points <- cali_grid[Eastern_Cascades_Slopes_and_Foothills,]
+
+Cali_Coastal_Sage_Chap_Oak_Woodlands_points <- rbind(Cali_Coastal_Sage_Chap_Oak_Woodlands1_points, Cali_Coastal_Sage_Chap_Oak_Woodlands2_points)
+
+Klamath_Mountains_points$ecoRegion <- 'Klamath_Mountains' # Give the ecoRegion a name
+Coast_Range_points$ecoRegion <- 'Coast_Range'
+Central_Basin_and_Range_points$ecoRegion <- 'Central_Basin_and_Range'
+Mojave_Basin_and_Range_points$ecoRegion <- 'Mojave_Basin_and_Range'
+Cascades_points$ecoRegion <- 'Cascades'
+Sierra_Nevadas_points$ecoRegion <- 'Sierra_Nevadas'
+Cali_Coastal_Sage_Chap_Oak_Woodlands_points$ecoRegion <- 'Cali_Coastal_Sage_Chap_Oak_Woodlands'
+Central_Cali_Valley_points$ecoRegion <- 'Central_Cali_Valley'
+Southern_and_Baja_Cali_PineOak_Mounts_points$ecoRegion <- 'Southern_and_Baja_Cali_PineOak_Mounts'
+Northern_Basin_and_Range_points$ecoRegion <- 'Northern_Basin_and_Range'
+Sonoran_Desert_points$ecoRegion <- 'Sonoran_Desert'
+Eastern_Cascades_Slopes_and_Foothills_points$ecoRegion <- 'Eastern_Cascades_Slopes_and_Foothills'
+  
+cali_grid <- rbind(Coast_Range_points, Central_Basin_and_Range_points, Mojave_Basin_and_Range_points, Cascades_points, Sierra_Nevadas_points, Cali_Coastal_Sage_Chap_Oak_Woodlands_points, Central_Cali_Valley_points, Klamath_Mountains_points, Southern_and_Baja_Cali_PineOak_Mounts_points, Northern_Basin_and_Range_points, Sonoran_Desert_points, Eastern_Cascades_Slopes_and_Foothills_points)
+
+cali_grid <- cali_grid %>% 
+  st_drop_geometry()
+```
+Write it out as a .csv
+```{r eval=FALSE, include=FALSE}
+write.csv(cali_grid, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-grid-pull.csv", row.names = FALSE)
+```
+
+Now add elevation data to our data for a comparison
+```{r}
+reordered_cali <- cali_grid %>% 
+  rename(latitude = lat) %>% 
+  rename(longitude = lon) %>% 
+  st_drop_geometry() %>% 
+  relocate(latitude, .before = ecoRegion) %>% 
+  relocate(longitude, .before = latitude) %>% 
+  select(!el)
+
+# Assign CRS
+prj_dd <- "EPSG:4326"
+
+# Use get_elev_point()
+cali_elevation_epqs <- get_elev_point(reordered_cali, prj = prj_dd, src = "epqs")
+
+# Convert back to a traditional df 
+cali_elv_df <- as.data.frame(cali_elevation_epqs)
+
+# Understand how much of our data is NA for elevation
+nas <- cali_elv_df %>% 
+  filter(is.na(elevation)) # Don't exist, wonderful!
+
+# And bring it back into a format for climateNA
+
+cali_grid_elv <- cali_elv_df %>% 
+  rename(long = coords.x1) %>% 
+  rename(lat = coords.x2) %>% 
+  rename(el = elevation) %>%
+  relocate(lat, .before = long) %>% 
+  relocate(el, .after = long) %>%  
+  select(!elev_units) # Note these are in meters for metadata.
+
+```
+Write to a .csv
+```{r}
+write.csv(cali_grid, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-grid-elv-pull.csv", row.names = FALSE)
+```
+
