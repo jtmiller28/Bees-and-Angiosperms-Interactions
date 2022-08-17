@@ -144,10 +144,172 @@ reordered_cali_extension <- cali_extended_grid %>%
 write.csv(reordered_cali_extension, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-grid-pull.csv", row.names = FALSE)
 ```
 
+### Second method for ecoregion climate analysis, we want to look at specifically where the occurrences are pulled to create our climate data within those ecoregions. This is more for comparison, does the ecoregion accurately describe these species distributions? 
+
+For the Plants
+```{r}
+regions_plants <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Processed-Data/fine-combined-plants.csv")
+
+# Remove points that are considered redundant for the purpose of this climate pull.
+regions_plants_drop <- regions_plants %>% 
+  distinct(decimalLatitude, decimalLongitude, .keep_all = TRUE)
+
+# Get rid of extraneous columns and add in a occurrenceType field
+regions_plants_df <- regions_plants_drop %>% 
+  select(decimalLatitude, decimalLongitude) %>% 
+  add_column(occurrenceType = "Plant")
+
+# Lets organize this df by ecoregion
+plants_w_crs <- st_as_sf(regions_plants_df, coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326, remove = FALSE)
+
+#Seperating out the shapefile by ecoregions lvl 3
+Coast_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Coast Range")
+Central_Basin_and_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Central Basin and Range")
+Mojave_Basin_and_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Mojave Basin and Range")
+Cascades <- subset(cali_ecoregions, subset = NA_L3NAME == "Cascades")
+Sierra_Nevadas <- subset(cali_ecoregions, subset = NA_L3NAME == "Sierra Nevada")
+Cali_Coastal_Sage_Chap_Oak_Woodlands <- subset(cali_ecoregions, subset = NA_L3NAME == "California Coastal Sage, Chaparral, and Oak Woodlands")
+Central_Cali_Valley <- subset(cali_ecoregions, subset = NA_L3NAME == "Central California Valley") 
+Klamath_Mountains <- subset(cali_ecoregions, subset = NA_L3NAME == "Klamath Mountains")
+Southern_and_Baja_Cali_PineOak_Mounts <- subset(cali_ecoregions, subset = NA_L3NAME == "Southern and Baja California Pine-Oak Mountains")
+Northern_Basin_and_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Northern Basin and Range")
+Sonoran_Desert <- subset(cali_ecoregions, subset = NA_L3NAME == "Sonoran Desert")
+Eastern_Cascades_Slopes_and_Foothills <- subset(cali_ecoregions, subset = NA_L3NAME == "Eastern Cascades Slopes and Foothills")
+
+# Filtering down the bees to their respective regions. 
+Coast_Range_plants <- plants_w_crs[Coast_Range,]
+Central_Basin_and_Range_plants <- plants_w_crs[Central_Basin_and_Range,]
+Mojave_Basin_and_Range_plants <- plants_w_crs[Mojave_Basin_and_Range,]
+Cascades_plants <- plants_w_crs[Cascades,]
+Sierra_Nevadas_plants <- plants_w_crs[Sierra_Nevadas,]
+Cali_Coastal_Sage_Chap_Oak_Woodlands_plants <- plants_w_crs[Cali_Coastal_Sage_Chap_Oak_Woodlands,]
+Central_Cali_Valley_plants <- plants_w_crs[Central_Cali_Valley,]
+Klamath_Mountains_plants <- plants_w_crs[Klamath_Mountains,]
+Southern_and_Baja_Cali_PineOak_Mounts_plants <- plants_w_crs[Southern_and_Baja_Cali_PineOak_Mounts,]
+Northern_Basin_and_Range_plants <- plants_w_crs[Northern_Basin_and_Range,]
+Sonoran_Desert_plants <- plants_w_crs[Sonoran_Desert,]
+Eastern_Cascades_Slopes_and_Foothills_plants <- plants_w_crs[Eastern_Cascades_Slopes_and_Foothills,]
+
+# And Assign a new column labeling the ecoregion's name 
+Klamath_Mountains_plants$ecoRegion <- 'Klamath_Mountains' # Give the ecoRegion a name
+Coast_Range_plants$ecoRegion <- 'Coast_Range'
+Central_Basin_and_Range_plants$ecoRegion <- 'Central_Basin_and_Range'
+Mojave_Basin_and_Range_plants$ecoRegion <- 'Mojave_Basin_and_Range'
+Cascades_plants$ecoRegion <- 'Cascades'
+Sierra_Nevadas_plants$ecoRegion <- 'Sierra_Nevadas'
+Cali_Coastal_Sage_Chap_Oak_Woodlands_plants$ecoRegion <- 'Cali_Coastal_Sage_Chap_Oak_Woodlands'
+Central_Cali_Valley_plants$ecoRegion <- 'Central_Cali_Valley'
+Southern_and_Baja_Cali_PineOak_Mounts_plants$ecoRegion <- 'Southern_and_Baja_Cali_PineOak_Mounts'
+Northern_Basin_and_Range_plants$ecoRegion <- 'Northern_Basin_and_Range'
+Sonoran_Desert_plants$ecoRegion <- 'Sonoran_Desert'
+Eastern_Cascades_Slopes_and_Foothills_plants$ecoRegion <- 'Eastern_Cascades_Slopes_and_Foothills'
+
+plant_grid <- rbind(Coast_Range_plants, Central_Basin_and_Range_plants, Mojave_Basin_and_Range_plants, Cascades_plants, Sierra_Nevadas_plants, Cali_Coastal_Sage_Chap_Oak_Woodlands_plants, Central_Cali_Valley_plants, Klamath_Mountains_plants, Southern_and_Baja_Cali_PineOak_Mounts_plants, Northern_Basin_and_Range_plants, Sonoran_Desert_plants, Eastern_Cascades_Slopes_and_Foothills_plants)
+
+plant_grid <- plant_grid %>% 
+  st_drop_geometry()
 
 
+# Reformat for a climate NA pull. 
+reordered_plant_df <- plant_grid %>% 
+  rename(latitude = decimalLatitude) %>% 
+  rename(longitude = decimalLongitude) %>% 
+  relocate(ecoRegion, .before = latitude) %>% 
+  relocate(occurrenceType, .after = ecoRegion) %>% 
+  add_column(el = ".")
+```
+
+Create the .csv for plants occurrences
+```{r eval=FALSE, include=FALSE}
+write.csv(reordered_plant_df, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-plant-pull.csv")
+```
 
 
+relocate(ecoRegion, .before = latitude) For the Bees
+```{r}
+regions_bees <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Processed-Data/Extended-Regions-Bees-Accepted-Names")
+
+regions_bees_drop <- regions_bees %>% 
+  distinct(decimalLatitude, decimalLongitude, .keep_all = TRUE)
+
+#Seperating out the shapefile by ecoregions lvl 3
+Coast_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Coast Range")
+Central_Basin_and_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Central Basin and Range")
+Mojave_Basin_and_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Mojave Basin and Range")
+Cascades <- subset(cali_ecoregions, subset = NA_L3NAME == "Cascades")
+Sierra_Nevadas <- subset(cali_ecoregions, subset = NA_L3NAME == "Sierra Nevada")
+Cali_Coastal_Sage_Chap_Oak_Woodlands <- subset(cali_ecoregions, subset = NA_L3NAME == "California Coastal Sage, Chaparral, and Oak Woodlands")
+Central_Cali_Valley <- subset(cali_ecoregions, subset = NA_L3NAME == "Central California Valley") 
+Klamath_Mountains <- subset(cali_ecoregions, subset = NA_L3NAME == "Klamath Mountains")
+Southern_and_Baja_Cali_PineOak_Mounts <- subset(cali_ecoregions, subset = NA_L3NAME == "Southern and Baja California Pine-Oak Mountains")
+Northern_Basin_and_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Northern Basin and Range")
+Sonoran_Desert <- subset(cali_ecoregions, subset = NA_L3NAME == "Sonoran Desert")
+Eastern_Cascades_Slopes_and_Foothills <- subset(cali_ecoregions, subset = NA_L3NAME == "Eastern Cascades Slopes and Foothills")
+
+bees_w_crs <- st_as_sf(regions_bees_drop, coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326, remove = FALSE)
+
+# Filtering down the bees to their respective regions. 
+Coast_Range_bees <- bees_w_crs[Coast_Range,]
+Central_Basin_and_Range_bees <- bees_w_crs[Central_Basin_and_Range,]
+Mojave_Basin_and_Range_bees <- bees_w_crs[Mojave_Basin_and_Range,]
+Cascades_bees <- bees_w_crs[Cascades,]
+Sierra_Nevadas_bees <- bees_w_crs[Sierra_Nevadas,]
+Cali_Coastal_Sage_Chap_Oak_Woodlands_bees <- bees_w_crs[Cali_Coastal_Sage_Chap_Oak_Woodlands,]
+Central_Cali_Valley_bees <- bees_w_crs[Central_Cali_Valley,]
+Klamath_Mountains_bees <- bees_w_crs[Klamath_Mountains,]
+Southern_and_Baja_Cali_PineOak_Mounts_bees <- bees_w_crs[Southern_and_Baja_Cali_PineOak_Mounts,]
+Northern_Basin_and_Range_bees <- bees_w_crs[Northern_Basin_and_Range,]
+Sonoran_Desert_bees <- bees_w_crs[Sonoran_Desert,]
+Eastern_Cascades_Slopes_and_Foothills_bees <- bees_w_crs[Eastern_Cascades_Slopes_and_Foothills,]
+
+# And Assign a new column labeling the ecoregion's name 
+Klamath_Mountains_bees$ecoRegion <- 'Klamath_Mountains' # Give the ecoRegion a name
+Coast_Range_bees$ecoRegion <- 'Coast_Range'
+Central_Basin_and_Range_bees$ecoRegion <- 'Central_Basin_and_Range'
+Mojave_Basin_and_Range_bees$ecoRegion <- 'Mojave_Basin_and_Range'
+Cascades_bees$ecoRegion <- 'Cascades'
+Sierra_Nevadas_bees$ecoRegion <- 'Sierra_Nevadas'
+Cali_Coastal_Sage_Chap_Oak_Woodlands_bees$ecoRegion <- 'Cali_Coastal_Sage_Chap_Oak_Woodlands'
+Central_Cali_Valley_bees$ecoRegion <- 'Central_Cali_Valley'
+Southern_and_Baja_Cali_PineOak_Mounts_bees$ecoRegion <- 'Southern_and_Baja_Cali_PineOak_Mounts'
+Northern_Basin_and_Range_bees$ecoRegion <- 'Northern_Basin_and_Range'
+Sonoran_Desert_bees$ecoRegion <- 'Sonoran_Desert'
+Eastern_Cascades_Slopes_and_Foothills_bees$ecoRegion <- 'Eastern_Cascades_Slopes_and_Foothills'
+
+bees_grid <- rbind(Coast_Range_bees, Central_Basin_and_Range_bees, Mojave_Basin_and_Range_bees, Cascades_bees, Sierra_Nevadas_bees, Cali_Coastal_Sage_Chap_Oak_Woodlands_bees, Central_Cali_Valley_bees, Klamath_Mountains_bees, Southern_and_Baja_Cali_PineOak_Mounts_bees, Northern_Basin_and_Range_bees, Sonoran_Desert_bees, Eastern_Cascades_Slopes_and_Foothills_bees)
+
+bees_grid <- bees_grid %>% 
+  st_drop_geometry() %>% 
+  select(decimalLatitude, decimalLongitude, ecoRegion) %>% 
+  add_column(occurrenceType = "Bee")
+
+
+# Reformat for a climate NA pull. 
+reordered_bees_df <- bees_grid %>% 
+  rename(latitude = decimalLatitude) %>% 
+  rename(longitude = decimalLongitude) %>% 
+  relocate(ecoRegion, .before = latitude) %>% 
+  relocate(occurrenceType, .after = ecoRegion) %>% 
+  add_column(el = ".")
+
+
+```
+
+Create the .csv for the data pull
+```{r eval=FALSE, include=FALSE}
+write.csv(reordered_bees_df, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-bee-pull.csv")
+```
+
+For their CoOccurrence
+```{r}
+combined_occurrences <- rbind(reordered_plant_df, reordered_bees_df)
+
+```
+
+Create the .csv for the data pull 
+```{r}
+write.csv(combined_occurrences, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-combined-occurrence-pull.csv")
+```
 
 
 
