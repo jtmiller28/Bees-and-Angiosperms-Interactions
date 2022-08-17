@@ -19,7 +19,6 @@ library(leaflet)
 library(zoom)
 library(elevatr)
 library(sp)
-library(car)
 ```
 
 Load in the shapefiles 
@@ -73,6 +72,85 @@ first_hun <- measurements[1:100, ]
 
 plot(st_geometry(first_hun))
 ```
+Creating the .csv for the pull request using this set up.
+
+```{r}
+# First lets label out this data according to its ecoregion. 
+#Seperating out the shapefile by ecoregions lvl 3
+Coast_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Coast Range")
+Central_Basin_and_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Central Basin and Range")
+Mojave_Basin_and_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Mojave Basin and Range")
+Cascades <- subset(cali_ecoregions, subset = NA_L3NAME == "Cascades")
+Sierra_Nevadas <- subset(cali_ecoregions, subset = NA_L3NAME == "Sierra Nevada")
+Cali_Coastal_Sage_Chap_Oak_Woodlands <- subset(cali_ecoregions, subset = NA_L3NAME == "California Coastal Sage, Chaparral, and Oak Woodlands")
+Central_Cali_Valley <- subset(cali_ecoregions, subset = NA_L3NAME == "Central California Valley") 
+Klamath_Mountains <- subset(cali_ecoregions, subset = NA_L3NAME == "Klamath Mountains")
+Southern_and_Baja_Cali_PineOak_Mounts <- subset(cali_ecoregions, subset = NA_L3NAME == "Southern and Baja California Pine-Oak Mountains")
+Northern_Basin_and_Range <- subset(cali_ecoregions, subset = NA_L3NAME == "Northern Basin and Range")
+Sonoran_Desert <- subset(cali_ecoregions, subset = NA_L3NAME == "Sonoran Desert")
+Eastern_Cascades_Slopes_and_Foothills <- subset(cali_ecoregions, subset = NA_L3NAME == "Eastern Cascades Slopes and Foothills")
+
+# Filtering down the bees to their respective regions. 
+Coast_Range_Points <- bounded_grid_sep[Coast_Range,]
+Central_Basin_and_Range_Points <- bounded_grid_sep[Central_Basin_and_Range,]
+Mojave_Basin_and_Range_Points <- bounded_grid_sep[Mojave_Basin_and_Range,]
+Cascades_Points <- bounded_grid_sep[Cascades,]
+Sierra_Nevadas_Points <- bounded_grid_sep[Sierra_Nevadas,]
+Cali_Coastal_Sage_Chap_Oak_Woodlands_Points <- bounded_grid_sep[Cali_Coastal_Sage_Chap_Oak_Woodlands,]
+Central_Cali_Valley_Points <- bounded_grid_sep[Central_Cali_Valley,]
+Klamath_Mountains_Points <- bounded_grid_sep[Klamath_Mountains,]
+Southern_and_Baja_Cali_PineOak_Mounts_Points <- bounded_grid_sep[Southern_and_Baja_Cali_PineOak_Mounts,]
+Northern_Basin_and_Range_Points <- bounded_grid_sep[Northern_Basin_and_Range,]
+Sonoran_Desert_Points <- bounded_grid_sep[Sonoran_Desert,]
+Eastern_Cascades_Slopes_and_Foothills_Points <- bounded_grid_sep[Eastern_Cascades_Slopes_and_Foothills,]
+
+# And Assign a new column labeling the ecoregion's name 
+Klamath_Mountains_Points$ecoRegion <- 'Klamath_Mountains' # Give the ecoRegion a name
+Coast_Range_Points$ecoRegion <- 'Coast_Range'
+Central_Basin_and_Range_Points$ecoRegion <- 'Central_Basin_and_Range'
+Mojave_Basin_and_Range_Points$ecoRegion <- 'Mojave_Basin_and_Range'
+Cascades_Points$ecoRegion <- 'Cascades'
+Sierra_Nevadas_Points$ecoRegion <- 'Sierra_Nevadas'
+Cali_Coastal_Sage_Chap_Oak_Woodlands_Points$ecoRegion <- 'Cali_Coastal_Sage_Chap_Oak_Woodlands'
+Central_Cali_Valley_Points$ecoRegion <- 'Central_Cali_Valley'
+Southern_and_Baja_Cali_PineOak_Mounts_Points$ecoRegion <- 'Southern_and_Baja_Cali_PineOak_Mounts'
+Northern_Basin_and_Range_Points$ecoRegion <- 'Northern_Basin_and_Range'
+Sonoran_Desert_Points$ecoRegion <- 'Sonoran_Desert'
+Eastern_Cascades_Slopes_and_Foothills_Points$ecoRegion <- 'Eastern_Cascades_Slopes_and_Foothills'
+
+cali_extended_grid <- rbind(Coast_Range_Points, Central_Basin_and_Range_Points, Mojave_Basin_and_Range_Points, Cascades_Points, Sierra_Nevadas_Points, Cali_Coastal_Sage_Chap_Oak_Woodlands_Points, Central_Cali_Valley_Points, Klamath_Mountains_Points, Southern_and_Baja_Cali_PineOak_Mounts_Points, Northern_Basin_and_Range_Points, Sonoran_Desert_Points, Eastern_Cascades_Slopes_and_Foothills_Points)
+
+cali_extended_grid <- cali_extended_grid %>% 
+  st_drop_geometry()
+
+```
+
+```{r}
+
+reordered_cali_extension <- cali_extended_grid %>% 
+  rename(latitude = lat) %>% 
+  rename(longitude = lon) %>% 
+  relocate(ecoRegion, .before = latitude) %>% 
+  add_column(el = ".") %>% 
+  add_column(occurrenceType = "NA") %>% 
+  relocate(occurrenceType, .after = ecoRegion)
+
+
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+write.csv(reordered_cali_extension, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-grid-pull.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+
 Adding in elevation to each of these with the package elevatr,
 Accesses USGS elevation point data query service to extract elevation data (US only?)
 ```{r}
