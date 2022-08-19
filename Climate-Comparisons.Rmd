@@ -1,0 +1,131 @@
+---
+title: "Climate-Comparisons"
+author: "JT Miller"
+date: "2022-08-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### This md is an analysis on climate in the Extended California Ecoregions
+
+```{r}
+library(tidyverse)
+```
+
+
+First, bring in the data. Data was pulled from climateNA using the years 1961-1990 (These years are before the large climatic shift, therefore we're going to start with this as a baseline for comparison)
+```{r}
+ecoregion_grid <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-grid-pull2_Normal_1961_1990Y.csv")
+```
+
+Lets take a look at mean annual temperature using boxplots for the ecoregions
+```{r}
+
+# Since Simpsons Paradox is a thing, lets try to visualize our data a bit 
+
+
+
+
+
+
+
+ggplot(data = ecoregion_grid, aes(x = ecoRegion, y = MAT, fill = ecoRegion)) +
+  geom_boxplot() +
+  theme_bw() + 
+  theme(axis.text.x = element_blank())
+  
+```
+And lets compare that to where the bees are found using the climateNA pulls on their occurrences
+```{r}
+bee_grid <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-bee-pull2_Normal_1961_1990Y.csv")
+
+ggplot(data = bee_grid, aes(x = ecoRegion, y = MAT, fill = ecoRegion)) +
+  geom_boxplot() +
+  theme_bw() + 
+  theme(axis.text.x = element_blank())
+
+bee_grid %>% 
+  group_by(ecoRegion) %>% 
+  summarise(mean(MAT), mean(MWMT), mean(MCMT), mean(TD), mean(DD5), mean(MAP))
+
+
+# Comparison 
+
+ecoregion_grid %>% 
+  group_by(ecoRegion) %>% 
+  summarise(mean(MAT), mean(MWMT), mean(MCMT), mean(TD), mean(DD5), mean(MAP))
+
+```
+Histogram Comparisons 
+```{r}
+
+shap_oak_woodlands_grid <- subset(ecoregion_grid, ecoregion_grid$ecoRegion == "Cali_Coastal_Sage_Chap_Oak_Woodlands")
+
+Chap_bees <- bee_grid %>% 
+  filter(ecoRegion =="Cali_Coastal_Sage_Chap_Oak_Woodlands")
+
+ggplot(data = shap_oak_woodlands_grid, aes(x = MAT)) +
+  geom_histogram()
+
+
+ggplot(data = Chap_bees, aes(x = MAT)) +
+  geom_histogram()
+```
+
+### Creating a Climograph using the gridded regions with season data. 
+
+bring in the data 
+```{r}
+regions_climate <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-grid-pull2_Normal_ALL_1961_1990MSY.csv")
+
+# Find possible NAs 
+regions_climate_NAs <- regions_climate %>% 
+  filter(Tmax01 == -9999) # There are 23 occurrence pts present with listed NAs, lets drop them. 
+
+regions_climate_drop <- regions_climate %>% 
+  filter(!(Tmax01 == -9999))
+```
+
+Take Averages of variables of interest. 
+```{r}
+regions_climate_avgs <- regions_climate_drop %>% 
+  group_by(ecoRegion) %>%  # Group the following actions by ecoRegion
+  mutate(across(contains("Tave"), mean, # Go across any column that matches the string Tave and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Tave"), round, 1)) %>%  # Round the columns to one decimal point, note this isn't sig figs but the way climateNA had their data set up. Probably check into this later. 
+  mutate(across(contains("PPT"), mean, # Do the same for precipitation
+          .names = "{fn}_{col}")) %>% 
+  mutate(across(contains("1_PPT"), round, 0)) %>% 
+  mutate(across(contains("RAD"), mean, # Go across any column that matches the string RAD and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_RAD"), round, 1)) %>%
+  mutate(across(contains("DD5"), mean, # Go across any column that matches the string DD5 and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_DD5"), round, 0)) %>%
+  mutate(across(contains("RH"), mean, # Go across any column that matches the string RH and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_RH"), round, 0)) %>%
+  mutate(across(contains("CMI"), mean, # Go across any column that matches the string CMI and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_CMI"), round, 0)) %>% 
+  mutate(across(contains("Eref"), mean, # Go across any column that matches the string RH and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Eref"), round, 0)) %>% 
+  mutate(across(contains("Tmax"), mean, # Go across any column that matches the string Tave and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Tmax"), round, 1)) %>% 
+  mutate(across(contains("Tmin"), mean, # Go across any column that matches the string Tave and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Tmin"), round, 1))
+  
+  
+
+regions_avgs <- rename_with(regions_climate_avgs, ~ gsub("1_", "avg_", .x, fixed = TRUE))
+
+regions_avgs_d <- distinct(regions_avgs, ecoRegion, .keep_all = TRUE)
+
+  ```
+
