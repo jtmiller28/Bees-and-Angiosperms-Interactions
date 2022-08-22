@@ -81,6 +81,7 @@ bring in the data
 ```{r}
 regions_climate <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-grid-pull2_Normal_ALL_1961_1990MSY.csv")
 
+library(tidyverse)
 # Find possible NAs 
 regions_climate_NAs <- regions_climate %>% 
   filter(Tmax01 == -9999) # There are 23 occurrence pts present with listed NAs, lets drop them. 
@@ -127,5 +128,265 @@ regions_avgs <- rename_with(regions_climate_avgs, ~ gsub("1_", "avg_", .x, fixed
 
 regions_avgs_d <- distinct(regions_avgs, ecoRegion, .keep_all = TRUE)
 
-  ```
+regions_avgs_less <- regions_avgs_d %>% 
+  select(ecoRegion, contains("avg_"))
+
+### Reorganize this df for later use ###
+
+regions_avg_temp <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Tave"), 
+    names_to = "temp_month",
+    values_to = "avg_temp_value") %>% 
+  select(ecoRegion, temp_month, avg_temp_value)
+
+regions_avg_PPT <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_PPT"), 
+    names_to = "PPT_month",
+    values_to = "avg_PPT_value") %>% 
+  select(ecoRegion, PPT_month, avg_PPT_value)
+
+regions_avg_Rad <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Rad"), 
+    names_to = "Rad_month",
+    values_to = "avg_Rad_value") %>% 
+  select(ecoRegion, Rad_month, avg_Rad_value)
+
+regions_avg_DD5 <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_DD5"), 
+    names_to = "DD5_month",
+    values_to = "avg_DD5_value") %>% 
+  select(ecoRegion, DD5_month, avg_DD5_value)
+
+regions_avg_RH <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_RH"), 
+    names_to = "RH_month",
+    values_to = "avg_RH_value") %>% 
+  select(ecoRegion, RH_month, avg_RH_value)
+
+regions_avg_CMI <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_CMI"), 
+    names_to = "CMI_month",
+    values_to = "avg_CMI_value") %>% 
+  select(ecoRegion, CMI_month, avg_CMI_value)
+
+regions_avg_Eref <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Eref"), 
+    names_to = "Eref_month",
+    values_to = "avg_Eref_value") %>% 
+  select(ecoRegion, Eref_month, avg_Eref_value)
+
+regions_avg_Tmax <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Tmax"), 
+    names_to = "Tmax_month",
+    values_to = "avg_Tmax_value") %>% 
+  select(ecoRegion, Tmax_month, avg_Tmax_value)
+
+regions_avg_Tmin <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Tmin"), 
+    names_to = "Tmin_month",
+    values_to = "avg_Tmin_value") %>% 
+  select(ecoRegion, Tmin_month, avg_Tmin_value)
+
+regions_temp_percipitation <- cbind(regions_avg_PPT, regions_avg_temp, regions_avg_Tmax, regions_avg_Tmin)
+
+month_v <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Winter", "Spring", "Summer", "Fall")
+
+regions_df <- regions_temp_percipitation %>% 
+  select(ecoRegion...1, avg_PPT_value, avg_temp_value,avg_Tmax_value,avg_Tmin_value) %>% 
+  add_column(months = rep(month_v, 12)) %>% 
+  rename(ecoRegion = ecoRegion...1)
+###
+ 
+
+
+
+list_1 <- lapply(1:length(unique(regions_avgs_d$ecoRegion)),
+                function(i)filter(regions_avgs_d, ecoRegion == unique(regions_avgs_d$ecoRegion)[i]))
+
+df_names <- c(regions_avgs_d$ecoRegion)
+
+split_df <- function(list, df_names){
+  for(i in 1:length(list)){
+   
+    assign(paste0(df_names[i]), list[[i]], envir = .GlobalEnv)
+  
+}
+  }
+
+
+list_1
+
+
+```
+
+```{r}
+### Split up the dataframes using our new fxn. 
+split_df(list_1, df_names)
+
+```
+
+Now to make a climogram/climograph. The goal is to create a full climate analysis for each ecoregion. 
+requirements:
+* X-axis should be the 12 months (& variation with the Seasons) 
+* Y-axis #1 should be percipitation 
+* Y-axis #2 should be Temperature
+* Somehow include Max Temp (Red dot?)
+* Somehow include Coldest Temp (Blue dot?)
+* Add Solar Radiation MJ m^-2 d^-1 (?)
+```{r}
+# Example code for a climatic graph using ggplot2
+df <- as.data.frame(c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+colnames(df) <- c("month")
+df$month <- factor(df$month, levels = month.abb)
+df$celsius <- c(-26.0, -24.5, -18.9, -9.8, -1.0, 7.0, 12.7, 12.3, 6.4, -1.2, -12.7, -21.9)
+df$prec_mm <- c(18.7, 16.6, 18.1, 23.6, 30.0, 44.2, 59.8, 69.4, 69.9, 48.4, 35.5, 18.4)
+
+
+df2 <- as.data.frame(c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+colnames(df2) <- c("month")
+df2$month <- factor(df$month, levels = month.abb)
+df2$celsius <- c(Coast_Range[,271:282])
+df2$prec_mm <- c(Coast_Range[,287:298])
+df2$max_celsius <- c(Coast_Range[,387:398])
+df2$min_celsius <- c(Coast_Range[,403:414])
+
+df2$celsius <- unlist(df2$celsius)
+df2$prec_mm<- unlist(df2$prec_mm)
+df2$max_celsius <- unlist(df2$max_celsius)
+df2$min_celsius <- unlist(df2$min_celsius)
+
+ggplot(data = df, mapping = aes(x = month, y = prec_mm, group = 1)) + 
+  geom_bar(stat = "identity", color="blue", fill="blue", width = 0.5) + 
+  geom_line(mapping = aes(y = celsius+30), color="red", size=1.5) + # Scale data to match desired scale
+  scale_y_continuous("Precipitation [mm]", 
+                     sec.axis = sec_axis(~ . -30, name = "Temperature [°C]") # Reverse transformation to match data
+  )
+
+thinned <- floor(seq(from=1,to=dim(df)[1],length=70))
+
+ggplot(data = df, mapping = aes(x = month, y = prec_mm, group = 1)) + 
+  geom_bar(stat = "identity", color="blue", fill="blue", width = 0.5) + 
+  geom_line(mapping = aes(y = celsius+30), color="red", size=1.5) + # Scale data to match desired scale
+  geom_point(data=df[thinned,],aes(x=month,y=celsius+30)) +
+  scale_y_continuous("Precipitation [mm]", 
+                     sec.axis = sec_axis(~ . -30, name = "Temperature [°C]") # Reverse transformation to match data
+  )
+
+ggplot(data = df2, mapping = aes(x = month, y = prec_mm, group = 1)) + 
+  geom_bar(stat = "identity", color="blue", fill="blue", width = 0.5) + 
+  geom_line(mapping = aes(y = celsius), color="red", size=1.5) + # Scale data to match desired scale
+  scale_y_continuous("Precipitation [mm]", 
+                     sec.axis = sec_axis(~ . *10, name = "Temperature [°C]") # Reverse transformation to match data
+  )
+```
+### Trying a slightly different method 
+```{r}
+### This is what I like. 
+df2 %>% 
+  ggplot(aes(x=month, group=1)) + 
+  geom_bar(aes(y=prec_mm/10, col = "Percipitation  [mm]"), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y=celsius, col="Avg. Temp [C]"), size = 1) + 
+  geom_line(aes(y=max_celsius, col = "Max. Avg. Temp [C]")) +
+  geom_line(aes(y=min_celsius, col = "Min. Avg.  Temp [C]")) +
+  geom_point(aes(y=celsius)) +
+  theme_bw() +
+  scale_color_manual(values=c("darkorange", "red" ,"blue", "black")) +
+  scale_y_continuous(sec.axis = sec_axis(~.*10, name = "Percipitation [mm]")) +
+  labs(x="month", y="Temperature [C]")
+```
+```{r}
+# Now lets come up with a fancy way of doing all of that in a facet grid.
+regions_df_monthly <- regions_df %>% 
+  filter(!(months %in% c("Winter", "Spring", "Summer", "Fall")))
+
+regions_df_monthly$months <- as.character(regions_df_monthly$months)
+
+regions_df_monthly$months <- factor(regions_df_monthly$months, levels = unique(regions_df_monthly$months))
+
+regions_df_monthly %>% 
+  ggplot(aes(x=months, group=1)) + 
+  geom_bar(aes(y=avg_PPT_value/10, col = "Percipitation  [mm]"), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y=avg_temp_value, col="Avg. Temp [C]"), size = 1) + 
+  geom_line(aes(y=avg_Tmax_value, col = "Max. Avg. Temp [C]")) +
+  geom_line(aes(y=avg_Tmin_value, col = "Min. Avg.  Temp [C]")) +
+  geom_point(aes(y=avg_temp_value)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(.~ecoRegion) +
+  scale_color_manual(values=c("darkorange", "red" ,"blue", "black")) +
+  scale_y_continuous(sec.axis = sec_axis(~.*10, name = "Percipitation [mm]")) +
+  labs(x="month", y="Temperature [C]")
+
+```
+```{r}
+# Perhaps we can make this look a bit nicer
+
+ggplot(data = regions_df_monthly, mapping = aes(x = months, y = avg_temp, group = 1)) + 
+  geom_bar(stat = "identity", color="blue", fill="blue", width = 0.5) + 
+  geom_line(mapping = aes(y = celsius+30), color="red", size=1.5) + # Scale data to match desired scale
+  scale_y_continuous("Precipitation [mm]", 
+                     sec.axis = sec_axis(~ . -30, name = "Temperature [°C]") # Reverse transformation to match data
+  )
+
+# Looks like we need to 'normalize' temperature in order to work with the weird limits imposed by having two axes
+
+# Transformation: Found on https://stackoverflow.com/questions/58774705/y-limits-for-ggplot-with-sec-axis
+#y <- a + (Temp - mean(Temp)/sd(Temp)) * s
+
+ylim.prim <- c(min(regions_df_monthly$avg_PPT_value), max(regions_df_monthly$avg_PPT_value))   # in this example, precipitation
+ylim.sec <- c(min(regions_df_monthly$avg_Tmin_value), max(regions_df_monthly$avg_Tmax_value))    # in this example, temperature
+
+b <- diff(ylim.prim)/diff(ylim.sec)
+a <- ylim.prim[1] - b*ylim.sec[1] # there was a bug here
+
+ggplot(regions_df_monthly, aes(months, avg_PPT_value)) +
+  geom_col() +
+  geom_line(aes(y = a + avg_temp_value*b), color = "red") +
+  scale_y_continuous("Precipitation", sec.axis = sec_axis(~ (. - a)/b, name = "Temperature")) +
+  facet_wrap(~ecoRegion) +
+  scale_x_discrete("Month", breaks = 1:12) 
+ggplot(regions_df_monthly, aes(months, avg_PPT_value)) +
+  geom_line() + 
+  geom_line(aes(y = (a + ((avg_temp_value - mean(TEMP))/sd(TEMP)) * s) ), color = "red") +
+  scale_y_continuous("Precipitation", 
+                     limits=ylim.prim,
+                     sec.axis = sec_axis(~ (. - a) / s * sd(TEMP) + mean(TEMP), name = "Temperature"),) +
+  scale_x_continuous("Month", breaks = 1:12) +
+  theme(axis.title.y.right = element_text(colour = "red"))
+```
+
+```{r}
+# Seasonal Version
+regions_df_seasons <- regions_df %>% 
+  filter(months %in% c("Winter", "Spring", "Summer", "Fall"))
+
+regions_df_seasons$months <- as.character(regions_df_seasons$months)
+
+regions_df_seasons$months <- factor(regions_df_seasons$months, levels = unique(regions_df_seasons$months))
+
+regions_df_seasons %>% 
+  ggplot(aes(x=months, group=1)) + 
+  geom_bar(aes(y=avg_PPT_value/10, col = "Percipitation  [mm]"), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y=avg_temp_value, col="Avg. Temp [C]"), size = 1) + 
+  geom_line(aes(y=avg_Tmax_value, col = "Max. Avg. Temp [C]")) +
+  geom_line(aes(y=avg_Tmin_value, col = "Min. Avg.  Temp [C]")) +
+  geom_point(aes(y=avg_temp_value)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(.~ecoRegion) +
+  scale_color_manual(values=c("darkorange", "red" ,"blue", "black")) +
+  scale_y_continuous(sec.axis = sec_axis(~.*10, name = "Percipitation [mm]")) +
+  labs(x="month", y="Temperature [C]")
+
+
+```
 
