@@ -13,6 +13,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 library(tidyverse)
+library(sf)
+library(spThin)
 ```
 
 
@@ -330,12 +332,6 @@ regions_df_monthly %>%
 ```{r}
 # Perhaps we can make this look a bit nicer
 
-ggplot(data = regions_df_monthly, mapping = aes(x = months, y = avg_temp, group = 1)) + 
-  geom_bar(stat = "identity", color="blue", fill="blue", width = 0.5) + 
-  geom_line(mapping = aes(y = celsius+30), color="red", size=1.5) + # Scale data to match desired scale
-  scale_y_continuous("Precipitation [mm]", 
-                     sec.axis = sec_axis(~ . -30, name = "Temperature [°C]") # Reverse transformation to match data
-  )
 
 # Looks like we need to 'normalize' temperature in order to work with the weird limits imposed by having two axes
 
@@ -439,7 +435,6 @@ In other words, does the ecoRegion's overall climate equally well describe where
 First Bring in Geographic Coords of bees climateNA pull
 ```{r}
 # Read in the bee data. 
-library(tidyverse)
 
 bee_locations <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-bee-pull2_ALL_Normal_1961_1990MSY.csv")
 
@@ -458,10 +453,6 @@ df_names <- c(unique(bee_locations$ecoRegion))
 
 ecoRegion_df_splitter(bee_locations, df_names) # See Global-Functions Script
 
-```
-Necessary Library
-```{r}
-library(spThin)
 ```
 
 Reduce Our Ecoregion Sets
@@ -509,11 +500,7 @@ thinned_regions <- rbind(Cali_Coastal_Sage_Chap_Oak_Woodlands, Cascades, Central
 thinned_bee_occurrences <- semi_join(bee_locations, thinned_regions, by = c("Longitude", "Latitude"))
 ```
 
-```{r}
-library(sf)
-library(sp)
-library(zoom)
-```
+
 
 Visualize our newly thinned occurrence map
 ```{r}
@@ -733,4 +720,326 @@ bees_df_monthly %>%
 # Source: https://oehha.ca.gov/media/epic/downloads/cc_precipitation2018.pdf
 
 ```
+### Non-Stats Comparisons just to give ourselves an idea of how different the data is ###
 
+```{r}
+# To deal with the weird constraints on negatives lets convert to Kelvin
+
+kelvin_converter <- function(x){
+  K = x + 273.15 # Convert value x to Kelvin
+  return(K)
+}
+
+celsius_converter <- function(x){
+  C = x - 273.15
+  return(C)
+}
+
+
+df_comparison <- bees_df_monthly %>% 
+  summarize(PPT_diff = regions_df_monthly$avg_PPT_value - bees_df_monthly$avg_PPT_value,
+            
+            avg_temp_diff = celsius_converter(kelvin_converter((regions_df_monthly$avg_temp_value) - (bees_df_monthly$avg_temp_value))),
+            
+            avg_MAX_temp_diff = celsius_converter(kelvin_converter((regions_df_monthly$avg_Tmax_value) - (bees_df_monthly$avg_Tmax_value))),
+  
+            avg_MIN_temp_diff = celsius_converter(kelvin_converter((regions_df_monthly$avg_Tmin_value) - (bees_df_monthly$avg_Tmin_value)))) %>% 
+            
+            add_column(months = bees_df_monthly$months) %>% 
+            add_column(ecoRegion = bees_df_monthly$ecoRegion)
+
+
+
+ggplot(df_comparison, aes(x = months, y = PPT_diff)) +
+  geom_bar(stat = "identity",  fill = "lightblue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(~ecoRegion)
+ # scale_y_continuous(name = "Percipitation [mm]", limits = c(-50,400))
+  
+
+```
+
+
+
+
+
+
+
+
+### Lets do Some Statistics to see if there is a sigificant difference between these two climate projections using gridded vs. bee occurrence data. 
+
+
+We can use either t-test or Welch's test to check whether a particular EcoRegion differs sigificantly in climate for each climate projection
+
+t-test: Assumptions: Normality, Variance is equal
+Welch's: Assumptions: Normality, Unequal variance -> Lose Power, however I have read this test is more robust when considering different sampling sizes. Considering our sample sizes are considerably different, this is probably the best way to proceed assuming that we can satisfy the normality assumption.
+
+Lets first look a 'stable' ecoregion of interest like the Mojave 
+```{r}
+final_thinned_bees %>%
+  group_by(ecoRegion) %>% 
+  count()
+  
+
+regions_climate_drop  %>% 
+  group_by(ecoRegion) %>% 
+  count()
+
+
+### Well the sample sizes are quite different as we would expect
+
+Mojave_bees <-final_thinned_bees %>% 
+  filter(ecoRegion == "Mojave_Basin_and_Range") # 780 obs
+
+Mojave_grid <- regions_climate_drop %>% 
+  filter(ecoRegion == "Mojave_Basin_and_Range") # 8064 ovbs
+
+# Bees have approximately 1/10 of the coverage.
+
+ggplot(Mojave_bees, aes(x=MAT)) +
+  geom_histogram() # Not too non-normal in my opinion, but there is some left skew so maybe a log transformation will assist
+
+ggplot(Mojave_bees, aes(sample = MAT)) +
+  stat_qq() +
+  stat_qq_line() # qqPlot looks pretty bad
+
+shapiro.test(Mojave_bees$MAT) # Shapiro Says the data is not normal
+
+
+model <- lm(MAT ~ ecoRegion, data = final_thinned_bees)
+
+summary(model)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+And do the same for the Plants ##### NA for now, the size of the occurrence records with the data is incredibly difficult since spThin requires datasets of size 10,000. I tried subsetting out the 79,000 record dataset and it works..but its a bit brutal. TO DO: Once we have a comprised list of known plant and bee interaction matches, lets filter down that dataset. 
+```{r}
+# Read in the plant data 
+plant_locations <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-plant-pull2_ALL_Normal_1961_1990MSY.csv")
+
+plant_locations <- plant_locations %>% 
+  distinct(Longitude, Latitude, .keep_all = TRUE)
+```
+
+Repeat the steps for splitting the df and thinning 
+```{r}
+df_names <- c(unique(plant_locations$ecoRegion))
+
+ecoRegion_df_splitter(plant_locations, df_names) # See Global-Functions Script
+
+
+### Necessary Regions to split further 
+# Chap/3
+# Central Basin / 8
+# Central Valley / 3
+# Coast Range / 3
+# Klamath / 4
+# Mojave / 7
+# Northern Basin / 3 
+# Sierra Nevadas / 7
+# Sonoran / 5
+# Baja /6
+
+# Splitting the dfs 
+df <- data.frame(x = 1:12, y = 12:1, identity = rep(c("A","B", "C", "D", "E", "F")))
+# A function from: https://stackoverflow.com/questions/41598538/split-dataframe-into-equal-parts
+splitter<-function(x,groups=10, EcoRegion){
+  dd<-as.data.frame(x)
+  dd$split<-sample(groups,size=nrow(dd),replace=T)
+  for(i in 1:groups){
+    ddd<-dd[dd$split==i,]
+    assign(paste0(EcoRegion,i),ddd,envir=globalenv())
+  }
+}
+splitter(df,6)
+
+# Create the names 
+Chaparral <- "Chaparral"
+CentralBasin <- "CentralBasin"
+CentralValley <- "CentralValley"
+CoastRange <- "CoastRange"
+Klamath <- "Klamath"
+Mojave <- "Mojave"
+NorthernBasin <- "NorthernBasin"
+SierraNevadas <- "SierraNevadas"
+Sonoran <- "Sonoran"
+Baja <- "Baja"
+
+splitter(Cali_Coastal_Sage_Chap_Oak_Woodlands, 3, Chaparral)
+splitter(Central_Basin_and_Range, 8, CentralBasin)
+splitter(Central_Cali_Valley, 3, CentralValley)
+splitter(Coast_Range, 3, CoastRange)
+splitter(Klamath_Mountains, 4, Klamath)
+splitter(Mojave_Basin_and_Range, 7, Mojave)
+splitter(Northern_Basin_and_Range, 3, NorthernBasin)
+splitter(Sierra_Nevadas, 7, SierraNevadas)
+splitter(Sonoran_Desert, 5, Sonoran)
+splitter(Southern_and_Baja_Cali_PineOak_Mounts, 6, Baja)
+
+# Bring them back together.
+dfList <- list(Chaparral1, Chaparral2, Chaparral3,
+               CentralBasin1,CentralBasin2,CentralBasin3,CentralBasin4,CentralBasin5,CentralBasin6,CentralBasin7,CentralBasin8, 
+               CentralValley1, CentralValley2, CentralValley3,
+               CoastRange1, CoastRange2, CoastRange3,
+               Klamath1, Klamath2, Klamath3, Klamath4,
+               Mojave1,Mojave2,Mojave3,Mojave4,Mojave5,Mojave6,Mojave7,
+               NorthernBasin1, NorthernBasin2, NorthernBasin3, 
+               SierraNevadas1, SierraNevadas2, SierraNevadas3, SierraNevadas4,SierraNevadas5,SierraNevadas6, SierraNevadas7,
+               Sonoran1,Sonoran2,Sonoran3,Sonoran4,Sonoran5,
+               Baja1,Baja2,Baja3,Baja4,Baja5,Baja6, Cascades, Eastern_Cascades_Slopes_and_Foothills)
+
+################################################################################
+
+#### Trying subsets ###
+
+split_list_singularEco <- function(list, df_names){
+  for(i in 1:length(list)){
+    
+    assign(paste0(df_names, i), list[[i]], envir = .GlobalEnv)
+    
+  }
+}
+
+
+ChapList <- list(Chaparral1, Chaparral2, Chaparral3)
+
+Chap_dfList <- lapply(ChapList, function(x){
+  y <- x %>% 
+  select(Latitude, Longitude) %>% 
+  relocate(Longitude, .before = Latitude)
+  })
+
+df_names <- "Cali_Coastal_Sage_Chap_Oak_Woodlands"
+
+split_list_singularEco(Chap_dfList, df_names)
+
+# Reformat into a list yayy
+
+dfList_forThin <- list(Cali_Coastal_Sage_Chap_Oak_Woodlands1)
+
+
+thinned_list <- lapply(dfList_forThin, function(x){
+  thin.algorithm(x, 
+                 thin.par = 4,
+                 reps = 1)
+  }
+)
+
+
+
+split_list_dfer(thinned_list, df_names)
+
+```
+
+# Using spThin to remove occurrences within 4km of eachother in order to reduce sampling bias 
+```{r}
+thinned_list <- lapply(dfList_forThin, function(x){
+  thin.algorithm(x, 
+                 thin.par = 4,
+                 reps = 1)
+  }
+)
+
+
+
+split_list_dfer(thinned_list, df_names)
+
+```
+Bring the dataset back together 
+```{r}
+# First, bring the ecoregions thinned occurrences back
+thinned_regions <- rbind(Cali_Coastal_Sage_Chap_Oak_Woodlands, Cascades, Central_Basin_and_Range, Central_Cali_Valley, Coast_Range, Eastern_Cascades_Slopes_and_Foothills, Klamath_Mountains, Mojave_Basin_and_Range, Northern_Basin_and_Range, Sierra_Nevadas, Sonoran_Desert, Southern_and_Baja_Cali_PineOak_Mounts)
+
+# Use semi_join on the parent df to filter down to a spatially thinned dataset
+thinned_plant_occurrences <- semi_join(plant_locations, thinned_regions, by = c("Longitude", "Latitude"))
+```
+
+Visualize our newly thinned occurrence map
+```{r}
+thinned_plant_occurrences_w_crs <- st_as_sf(thinned_plant_occurrences, coords = c('Longitude', 'Latitude'), crs = 4326, remove = FALSE)
+plant_locations_w_crs <- st_as_sf(plant_locations, coords = c('Longitude', 'Latitude'), crs = 4326, remove = FALSE)
+plot(st_geometry(thinned_plant_occurrences_w_crs))
+
+
+plot(st_geometry(plant_locations_w_crs))
+
+
+# Measure the distances to be sure we hit the right distance for each point
+measurements <- thinned_plant_occurrences_w_crs %>%
+  mutate(
+    lead = geometry[row_number() + 1],
+    dist = st_distance(geometry, lead, by_element = T)) %>% 
+  mutate(km_dist = as.integer(dist)) %>% 
+  mutate(km_dist = km_dist/1000) 
+
+measurements_wout_NAs <- measurements %>% 
+  filter(!is.na(km_dist))
+
+min(measurements_wout_NAs$km_dist) # Success! 
+
+# Semi_join to get rid of that one problematic location
+final_thinned_plants <- semi_join(plant_locations, measurements_wout_NAs, by = c("Longitude", "Latitude"))
+```
