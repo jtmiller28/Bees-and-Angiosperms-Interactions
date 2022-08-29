@@ -1,0 +1,167 @@
+---
+title: "LCVP_resolution"
+author: "JT Miller"
+date: "2022-08-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### A markdown to look at taxonomic resolution using the Leipzig Catalogue of Vascular Plants
+https://www.nature.com/articles/s41597-020-00702-z.pdf 
+https://github.com/idiv-biodiversity/lcvplants
+
+Libraries
+```{r}
+# Required Librariers
+library(devtools)
+#devtools::install_github("idiv-biodiversity/LCVP") # Apparently this database is large enough to error R out if you have default download options. Set options(timeout=9999999) to remedy this issue and avoiding a FAIL errorcode. 
+
+#devtools::install_github("idiv-biodiversity/lcvplants")
+# Load the package
+library(lcvplants)
+library(tidyverse)
+```
+
+Run an example to make sure that the package works 
+```{r}
+# single names
+lcvp_search("Hibiscus vitifolius") # Note the warning says the first accepted name was returned. 
+lcvp_fuzzy_search("Hibiscus vitifolius") # Same as lcvp_search, but returns ALL matches including synonyms 
+
+# Can also include infra specific names and authorities
+lcvp_search("Hibiscus abelmoschus var. betulifolius Mast.")
+
+# Also works on vectors of names
+search_result <- lcvp_search(c("Hibiscus abelmoschus var. betulifolius Mast.", "Hibiscus abutiloides Willd.", 
+       "Hibiscus aculeatus", "Hibiscus acuminatus"))
+
+# You can see the summary results
+lcvp_summary(search_result)
+
+```
+The package can also detect misspellings by specifying a max_distance argument. 
+```{r}
+# set max_distance = 2 meaning there can be at most 2 letters misspelled in the genus, then epithet 
+lcvp_search("Hibiscus vitifolia", max_distance = 2) # Note vitifolia vs vitifolius
+
+# It appears that the specific epithet can be pretty misspelled, however the any genus misspellings will void the search
+lcvp_search("Hibiscus viticooiua", max_distance = 3)
+lcvp_search("Libiscus vitifolius", max_distance = 1) # This is different then what the authors specified in their methods, possibly something changed? 
+```
+Searches can be also made based upon Order, Family, Genus, or Author.
+```{r}
+lcvp_group_search("AA", search_by = "Genus") # Look for genus AA 
+
+lcvp_group_search(c("Orchidaceae", "Poaceae", "Phyllanthaceae"), search_by = "Family") # Look up the following families
+```
+The package also allows for comparisons to be made between two lists of species
+```{r}
+# Make a sp list 1
+splist1 <- sample(LCVP::tab_lcvp$Input.Taxon[1:10]) # Take the first 10 rows of the tab_lcvp df and subset it into a vector of the first 10 values in Input.Taxon
+# Make a sp list 2
+splist2 <- sample(LCVP::tab_lcvp$Input.Taxon[1:10]) # ""
+
+lcvp_match(splist1, splist2)
+
+
+
+```
+Finally, this package allows us to join two tables based upon vascular plant names
+```{r}
+splist1 <- sample(LCVP::tab_lcvp$Input.Taxon[2:10]) # Take the 2:10 rows of the tab_lcvp df and subset it into a vector of the first 2:10 values in Input.Taxon (9 values)
+x <- data.frame("Species" = splist1, "Trait1" = runif(length(splist1))) # Create a dummy dataframe with the a column for Species made with the vector splist1, then populate a second column with uniform distribution of numbers for the length of the vector splist1
+
+splist2 <- sample(LCVP::tab_lcvp$Input.Taxon[1:8]) # Grab the first 8 rows
+y <- data.frame("Species" = splist2,  "Trait2" = runif(length(splist2)), "Trait3" = runif(length(splist2))) # Add in the compoinent of a third trait
+
+# a Full Join with the two tables
+lcvp_join(x, y, c("Species", "Species"), type = "full") # Note that the comparison generates NAs for where they dont match up. For example list 2 does not contain the elements 2 & 6 found in list 1. 
+
+# A Left join (Only return values in x)
+lcvp_join(x, y, c("Species", "Species"), type = "left") # Should give us 9 values
+
+# A Right join (Only return values in y)
+lcvp_join(x,y, c("Species", "Species"), type = "right") # Should give us 8 values
+
+# A Inner join (Only return values that exist in both x & y)
+lcvp_join(x,y, c("Species", "Species"), type = "inner") # Should give us 7 values
+```
+### Enough test driving, lets try this out on some real data
+
+```{r}
+idigbio_plants <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Raw-Data/Plant-Data/idigbio-plant-unresolved-names.csv")
+
+idigbio_plants_unique_SN <- idigbio_plants %>% 
+  distinct(dwc.scientificName, .keep_all = TRUE)
+
+# Create some subsets to test query time
+subset_100 <- idigbio_plants_unique_SN[1:100,10] # column 10 is the scientificName 
+subset_1000 <- idigbio_plants_unique_SN[1:1000,10]
+subset_10000 <- idigbio_plants_unique_SN[1:10000,10]
+subset_5000 <- idigbio_plants_unique_SN[1:5000, 10]
+```
+
+```{r}
+search_result <- lcvp_search(subset_100) # Error occurred suggesting binomial name violation, check for example "arctostaphylos" 
+subset_100_a <- lapply(subset_100, function(z) z[grepl("arctostaphylos", z)])
+subset_100_a # Issue with element 6, no epithet specified. Lets write some code that with remove any entries that don't have more than a a singular word present 
+
+test_df <- idigbio_plants_unique_SN[sapply(strsplit(as.character(idigbio_plants_unique_SN$dwc.scientificName)," "),length)>1,] # Drops anything with less than 2 words in the character string  
+
+test_df2 <- idigbio_plants_unique_SN[sapply(strsplit(as.character(idigbio_plants_unique_SN$dwc.scientificName)," "),length)==1,] # Shows the ones we got rid of, besides that one value that has zero
+
+test_df3 <- idigbio_plants_unique_SN[sapply(strsplit(as.character(idigbio_plants_unique_SN$dwc.scientificName)," "),length)==0,]
+
+test_df <- test_df[1:100, 10]
+test_df <- lapply(test_df,  function(z) z[grepl("arctostaphylos", z)])
+
+test_df # Seems to have fixed the issue 
+
+
+### Apply this to our actual DF 
+idigbio_plants_unique_SN_db <- idigbio_plants_unique_SN[sapply(strsplit(as.character(idigbio_plants_unique_SN$dwc.scientificName)," "),length)>1,]
+```
+
+```{r}
+# Subsetting our new df 
+subset_100 <- idigbio_plants_unique_SN_db[1:100,10] # column 10 is the scientificName 
+subset_1000 <- idigbio_plants_unique_SN_db[1:1000,10]
+subset_10000 <- idigbio_plants_unique_SN_db[1:10000,10]
+subset_5000 <- idigbio_plants_unique_SN_db[1:5000, 10]
+
+start.time <- Sys.time()
+search_result <- lcvp_search(subset_100) # Alright, successful output. 
+# Note notation: PL_Comparison = Plant List Comparison
+# PL_Alternative = provides the alternative name from the The Plant List 
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken # 1.5 seconds to resolve 100 names 
+
+
+start.time <- Sys.time()
+search_result <- lcvp_search(subset_1000) # Alright, successful output. 
+# Note notation: PL_Comparison = Plant List Comparison
+# PL_Alternative = provides the alternative name from the The Plant List 
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken # 18 seconds to resolve
+
+start.time <- Sys.time()
+search_result <- lcvp_search(subset_10000) # Alright, successful output. 
+# Note notation: PL_Comparison = Plant List Comparison
+# PL_Alternative = provides the alternative name from the The Plant List 
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken # 4.78 minutes to resolve
+
+# Trying our full dataset
+start.time <- Sys.time()
+LCVP_resolved_idigbio_plants <- lcvp_search(idigbio_plants_unique_SN_db$dwc.scientificName) # Failed to run due to taxonomic name issue
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
