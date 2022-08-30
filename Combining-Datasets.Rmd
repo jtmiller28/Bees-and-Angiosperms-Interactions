@@ -1,0 +1,272 @@
+---
+title: "Combining-Data"
+author: "JT Miller"
+date: "2022-08-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## A markdown for combining GBIF and iDigBio pulls on occurrence data. 
+
+A cool guide I found for some post-processing gbif data: https://data-blog.gbif.org/post/gbif-filtering-guide/ 
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(CoordinateCleaner)
+library(TNRS)
+```
+Plant Data Peliminary parsing
+```{r eval=FALSE, include=FALSE}
+idigbio_plants <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/iDigBio-Pull/occurrence.csv")
+
+idigbio_plants_less <- idigbio_plants %>% 
+  select(coreid, dwc.basisOfRecord, dwc.catalogNumber, dwc.collectionID, dwc.coordinateUncertaintyInMeters, dwc.family, dwc.locality, dwc.occurrenceID, idigbio.recordIds, dwc.scientificName, dwc.taxonRank, dwc.datasetID, dwc.genus, dwc.higherClassification, dwc.infraspecificEpithet, dwc.order, dwc.specificEpithet, dwc.taxonID, dwc.typeStatus, gbif.canonicalName, dwc.collectionCode, idigbio.flags, dwc.kingdom, dwc.phylum, idigbio.geoPoint, dwc.eventDate, idigbio.eventDate)
+
+rm(idigbio_plants)
+
+write.csv(idigbio_plants_less, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/iDigBio-Pull/select-fields-plants.csv ", row.names = FALSE)
+
+rm(idigbio_plants_less)
+
+gbif_names <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/GBIF-Pull/head-plants.txt", header = TRUE)
+```
+
+Load in idigbio plant data and start some processing 
+```{r}
+idigbio_plants <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/iDigBio-Pull/select-fields-plants.csv ")
+```
+
+It seems necessary to break up the column idigbio.geoPoint into usable coordinates. 
+```{r}
+idigbio_plants <- idigbio_plants %>%  
+  separate(idigbio.geoPoint, c("decimalLatitude", "decimalLongitude"), sep = ",") 
+
+idigbio_plants$decimalLatitude <- gsub("\\{", "", idigbio_plants$decimalLatitude)
+idigbio_plants$decimalLongitude <- gsub("\\}", "", idigbio_plants$decimalLongitude)
+
+idigbio_plants$decimalLatitude <- gsub('^"', "", idigbio_plants$decimalLatitude)
+idigbio_plants$decimalLongitude <- gsub('^"', "", idigbio_plants$decimalLongitude)
+
+idigbio_plants$decimalLongitude <- gsub('\"', "", idigbio_plants$decimalLongitude)
+
+idigbio_plants$decimalLatitude <- gsub("lat", "", idigbio_plants$decimalLatitude)
+idigbio_plants$decimalLongitude <- gsub("lon", "", idigbio_plants$decimalLongitude)
+
+idigbio_plants$decimalLatitude <- gsub('^"', "", idigbio_plants$decimalLatitude) # Second Time to fix
+
+
+idigbio_plants$decimalLatitude <- gsub("\\:", "", idigbio_plants$decimalLatitude)
+idigbio_plants$decimalLongitude <- gsub("\\:", "", idigbio_plants$decimalLongitude)
+
+
+
+
+# Fix whitespace
+idigbio_plants$decimalLatitude <- gsub(" ", "", idigbio_plants$decimalLatitude, fixed = TRUE)
+idigbio_plants$decimalLongitude <- gsub(" ", "", idigbio_plants$decimalLongitude, fixed = TRUE)
+
+```
+
+
+
+Clean Localities
+```{r}
+idigbio_plants <- idigbio_plants %>% 
+  filter(!is.na(decimalLatitude)) %>%
+  filter(!is.na(decimalLongitude)) %>% 
+  filter(!(decimalLongitude == "")) %>% 
+  filter(!(decimalLatitude == ""))
+  
+# Remove Unlikely Coords
+idigbio_plants <- idigbio_plants %>% 
+  filter(decimalLatitude != 0.00) %>% 
+  filter(decimalLongitude != 0.00)
+
+glimpse(idigbio_plants)
+
+idigbio_plants$decimalLatitude <- as.numeric(idigbio_plants$decimalLatitude)
+idigbio_plants$decimalLongitude <- as.numeric(idigbio_plants$decimalLongitude)
+
+# Remove cultivated zones such as botanical gardens listed within the CoordinateCleaner package
+idigbio_plants <- CoordinateCleaner::cc_inst(idigbio_plants, 
+                                             lon = "decimalLongitude",
+                                             lat = "decimalLatitude", 
+                                             species = "scientificName") # Probably should apply this step after taxonomic processing once we have it. 
+
+
+
+idigbio_plants <- CoordinateCleaner::cc_outl(idigbio_plants, 
+              lon = "decimalLongitude", 
+              lat = "decimalLatitude", 
+              species = "scientificName")
+```
+
+Fix up the dates
+```{r}
+
+idigbio_plants$date <- lubridate::ymd(idigbio_plants$dwc.eventDate)
+
+idigbio_plants <- idigbio_plants %>% 
+  mutate(year = lubridate::year(date), 
+         month = lubridate::month(date), 
+             day = lubridate::day(date))
+```
+
+Clean up Taxonomy
+```{r}
+# Using the package to access TNRS iplant resolution service 
+iplant_subset <- idigbio_plants[1:100,]
+
+iplant_subset_names <- iplant_subset$dwc.scientificName
+
+
+iplant_resolve(sci = "erysimum capitatum")
+
+tnrs_sources <- TNRS_sources() # Has the sources that we would expect. 
+
+resolved_subset <- TNRS(iplant_subset_names, sources = "wfo", classification = "wfo")
+
+# Alright lets take this to its own RMD since it seems to be a rabbithole of fun
+
+
+
+
+write.csv(idigbio_plants, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/iDigBio-Pull/Unresolved-iDigBio-Plants.csv", row.names = FALSE)
+```
+
+
+
+
+
+Remove Duplicates
+```{r}
+# Remove rows with identical values for the following fields # 3142183 Prior records
+idigbio_plants <- distinct(idigbio_plants, decimalLatitude, decimalLongitude, year, month, day, .keep_all = TRUE) # drops 1849634 records
+```
+
+
+write to a csv 
+```{r eval=FALSE, include=FALSE}
+write.csv(idigbio_plants, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/iDigBio-Pull/idigbio-plants-cleaned.csv", row.names = FALSE)
+```
+
+## Repeating the cleaning on the GBIF datapull
+```{r}
+GBIF_plants <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/GBIF-Pull/selected-plants-less.txt", header = TRUE, quote = "")
+
+GBIF_plants <- GBIF_plants %>% 
+  filter(!is.na(decimalLatitude)) %>%
+  filter(!is.na(decimalLongitude)) %>% 
+  filter(!(decimalLongitude == "")) %>% 
+  filter(!(decimalLatitude == ""))
+  
+# Remove Unlikely Coords
+GBIF_plants <- GBIF_plants %>% 
+  filter(decimalLatitude != 0.00) %>% 
+  filter(decimalLongitude != 0.00)
+
+glimpse(GBIF_plants)
+
+#GBIF_plants$decimalLatitude <- as.numeric(GBIF_plants$decimalLatitude)
+#GBIF_plants$decimalLongitude <- as.numeric(GBIF_plants$decimalLongitude)
+
+# Remove cultivated zones such as botanical gardens listed within the CoordinateCleaner package
+GBIF_plants <- CoordinateCleaner::cc_inst(GBIF_plants, 
+                                             lon = "decimalLongitude",
+                                             lat = "decimalLatitude", 
+                                             species = "scientificName") # Probably should apply this step after taxonomic
+```
+
+Fix up dates
+```{r}
+
+GBIF_plants$date <- lubridate::ymd(GBIF_plants$date)
+
+GBIF_plants <- GBIF_plants %>% 
+  mutate(year = lubridate::year(date), 
+         month = lubridate::month(date), 
+             day = lubridate::day(date))
+
+
+```
+
+Clean Up taxonomic Designations 
+```{r}
+# Looks like we can access tnrs via the taxize package
+gbif_plant_names <- GBIF_plants$
+```
+
+
+Clean for Duplicates
+```{r}
+# Remove rows with identical values for the following fields # ~7 Million Prior records
+GBIF_plants <- distinct(GBIF_plants, decimalLatitude, decimalLongitude, year, month, day, .keep_all = TRUE) # drops ~3 million
+
+```
+
+Make a csv for it
+```{r eval=FALSE, include=FALSE}
+write.csv(GBIF_plants, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/GBIF-Pull/GBIF-plants-cleaned.csv", row.names = FALSE)
+```
+
+### Combining the datasets and some cleaning
+```{r}
+# Bring in each respective dataset. 
+idigbio_plants <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/iDigBio-Pull/idigbio-plants-cleaned.csv")
+GBIF_plants <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/GBIF-Pull/GBIF-plants-cleaned.csv")
+```
+
+Currently these datasets share some common columns, lets combine those and discard extraneous ones for now.
+```{r}
+names(idigbio_plants)
+GBIF_names <- names(GBIF_plants)
+
+names(idigbio_plants) = gsub(pattern = "dwc.", replacement = "", x = names(idigbio_plants))
+
+idignames <- names(idigbio_plants)
+
+which(idignames%in% GBIF_names)
+
+# Subset out our idigbio dataset to contain the same columns. 
+idigbio_plants <- idigbio_plants %>% 
+  select(basisOfRecord, catalogNumber, collectionID, coordinateUncertaintyInMeters, family, locality, occurrenceID, scientificName, genus, order, collectionCode, kingdom, phylum, decimalLatitude, decimalLongitude, date, year, month, day)
+
+# Repeat for our gbif dataset
+GBIF_plants <- GBIF_plants %>% 
+  select(basisOfRecord, catalogNumber, collectionID, coordinateUncertaintyInMeters, family, locality, occurrenceID, scientificName, genus, order, collectionCode, kingdom, phylum, decimalLatitude, decimalLongitude, date, year, month, day)
+
+# Combine the datasets
+
+combined_plants <- rbind(GBIF_plants, idigbio_plants)
+
+# And repeat the initial cleaning for repeat records. There are currently 5.29 million records total. 
+combined_plants <- distinct(combined_plants, decimalLatitude, decimalLongitude, year, month, day, .keep_all = TRUE)
+
+# We only lost .09 million = 90,000 records, a lot less than I would expect to be honest
+
+rm(GBIF_plants, idigbio_plants)
+
+```
+
+```{r eval=FALSE, include=FALSE}
+write.csv(combined_plants, "/home/jt-miller/Globi-Bees-Plant-Interactions/Processed-Data/rough-combined-plants.csv", row.names = FALSE)
+```
+
+Now some post-processing for coordinate percision
+```{r}
+combined_plants <- combined_plants %>% 
+  filter(!((locality == "[Not Stated]")& is.na(coordinateUncertaintyInMeters)))
+
+combined_plants <- combined_plants %>% 
+  filter(!((coordinateUncertaintyInMeters >= 100) & is.na(locality) | locality == "" | locality == "[state]" | locality == "[no specific locality data]")) # Drops ~3 million records
+```
+
+```{r}
+write.csv(combined_plants, "/home/jt-miller/Globi-Bees-Plant-Interactions/Processed-Data/fine-combined-plants.csv", row.names = FALSE)
+```
+
+

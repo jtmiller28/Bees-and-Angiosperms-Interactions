@@ -15,6 +15,9 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(sf)
 library(spThin)
+library(car)
+library(ggpubr)
+library(gridExtra)
 ```
 
 
@@ -754,10 +757,45 @@ ggplot(df_comparison, aes(x = months, y = PPT_diff)) +
   geom_bar(stat = "identity",  fill = "lightblue", color = "black") + 
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
-  facet_wrap(~ecoRegion)
+  facet_wrap(~ecoRegion) + 
+  labs(title = "Difference Between EcoRegion and Bee Pull Percipitation") +
+  xlab("Month") +
+  ylab("Percipitation [mm]") +
+  theme(plot.title = element_text(hjust = 0.5))
  # scale_y_continuous(name = "Percipitation [mm]", limits = c(-50,400))
-  
+ggsave("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Figures/Difference-in-Percipitation.pdf", width = 20, height = 10)
 
+ggplot(df_comparison, aes(x = months, y = avg_temp_diff)) +
+  geom_bar(stat = "identity",  fill = "lightblue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(~ecoRegion) +
+  labs(title = "Difference Between EcoRegion and Bee Pull Avg Temperature") +
+  xlab("Month") +
+  ylab("Temperature [C]") +
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Figures/Difference-in-Avg-Temp.pdf", width = 20, height = 10)
+
+ggplot(df_comparison, aes(x = months, y = avg_MIN_temp_diff)) +
+  geom_bar(stat = "identity",  fill = "lightblue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(~ecoRegion) +
+  labs(title = "Difference Between EcoRegion and Bee Pull Avg Minimum Temperature") +
+  xlab("Month") +
+  ylab("Temperature [C]") +
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Figures/Difference-in-Min-Temp.pdf", width = 20, height = 10)
+ggplot(df_comparison, aes(x = months, y = avg_MAX_temp_diff)) +
+  geom_bar(stat = "identity",  fill = "lightblue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(~ecoRegion) +
+  labs(title = "Difference Between EcoRegion and Bee Pull Avg Maximum Temperature") +
+  xlab("Month") +
+  ylab("Temperature [C]") +
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Figures/Difference-in-Max-Temp.pdf", width = 20, height = 10)
 ```
 
 
@@ -807,15 +845,138 @@ ggplot(Mojave_bees, aes(sample = MAT)) +
 shapiro.test(Mojave_bees$MAT) # Shapiro Says the data is not normal
 
 
-model <- lm(MAT ~ ecoRegion, data = final_thinned_bees)
 
-summary(model)
+# Are the residuals Normal?
+fit_t <- lm(MAT ~ ecoRegion ,data=regions_climate_drop) #run a linear model. lm(y~x) fits the equation y=mx+b
+res_t=fit_t$residuals #retrieve the residuals from the model
 
+qqPlot(res_t) # Ouch, pretty bad. 
+
+ggplot(regions_climate_drop, aes(x=log(MAT))) +
+  geom_histogram() 
+
+```
+### Comparison of climateNA averages to that of the EPA's publishment on ecoregion descriptions:https://gaftp.epa.gov/EPADataCommons/ORD/Ecoregions/pubs/NA_TerrestrialEcoregionsLevel3_Final-2june11_CEC.pdf
+
+# Create a df that holds the EPA's descriptions averages
+```{r}
+ecoregion_naming <- c("Chaparral", "Cascades", "Central Basin", "Central Valley", "Coast Range", "Eastern Cascades", "Klamath Mountains", "Mojave", "Northern Basin", "Sierra Nevadas", "Sonoran Desert", "Baja")
+
+mean_percipitation_mm <- c(548, 1824, 277, 125, 2149, 649, 1438, 167, 351, 1070, 206, 525 )
+lowest_mean_temp <- c(14, -1, 2, 15, 7, 2, 5, 5, 5, -3, 19, 6)
+highest_mean_temp <- c(18, 11, 14, 19, 14, 11, 14, 24, 9, 17, 25, 17)
+
+ecoregions_desc <- data.frame(ecoregion_naming, mean_percipitation_mm, lowest_mean_temp, highest_mean_temp)
+ecoregions_desc2 <- ecoregions_desc %>% 
+  rename(ecoregion = ecoregion_naming) %>% 
+  relocate(highest_mean_temp, .after = ecoregion) %>% 
+  relocate(lowest_mean_temp, .after = highest_mean_temp) %>% 
+  relocate(mean_percipitation_mm, .after = lowest_mean_temp)
+```
+
+# We need yearly averages from our original region dataset
+```{r}
+climateNA_regions_summary <- regions_climate_drop %>% 
+  group_by(ecoRegion) %>% 
+  summarise(highest_mean_temp = mean(MWMT), 
+            lowest_mean_temp = mean(MCMT),
+            mean_percipitation_mm = sum(mean(PPT01), mean(PPT02), mean(PPT03),mean(PPT04), mean(PPT05), mean(PPT06), mean(PPT07), mean(PPT08), mean(PPT09), mean(PPT10), mean(PPT11), mean(PPT12)))
+
+
+climateNA_regions_summary2 <- climateNA_regions_summary %>% 
+  select(-ecoRegion) %>% 
+  add_column(ecoregion = c("Chaparral", "Cascades", "Central Basin", "Central Valley", "Coast Range", "Eastern Cascades", "Klamath Mountains", "Mojave", "Northern Basin", "Sierra Nevadas", "Sonoran Desert", "Baja")) %>% 
+  relocate(ecoregion, .before = highest_mean_temp) %>% 
+  mutate(across(2:3, round, 0)) %>% 
+  mutate(across(mean_percipitation_mm, round, 0))
+
+```
+# Making a table
+```{r}
+climateNA_table <- ggtexttable(climateNA_regions_summary2, rows = NULL, theme = ttheme("classic", base_size = 10))
+
+EPA_averages_table <- ggtexttable(ecoregions_desc2, rows = NULL, theme = ttheme("classic", base_size = 10))
+```
+
+# Compare the two in mean_percipitation_mm, lowest_mean_temp, and highest_mean_temp
+```{r}
+EPA_ClimateNA_comp <- climateNA_regions_summary %>% 
+  summarize(PPT_diff = climateNA_regions_summary$mean_percipitation_mm - ecoregions_desc$mean_percipitation_mm,
+            
+      
+            
+            avg_MAX_temp_diff = climateNA_regions_summary$highest_mean_temp - ecoregions_desc$highest_mean_temp,
+  
+            avg_MIN_temp_diff = climateNA_regions_summary$lowest_mean_temp - ecoregions_desc$lowest_mean_temp) %>% 
+            
+   
+            add_column(ecoRegion = ecoregions_desc$ecoregion_naming) %>% 
+  relocate(ecoRegion, .before = PPT_diff)
+
+
+comp_table <- ggtexttable(EPA_ClimateNA_comp, rows = NULL, theme = ttheme("classic"))
+  
+```
+
+```{r}
+PPT_difference <- ggplot(EPA_ClimateNA_comp, aes(x = ecoRegion, y = PPT_diff)) +
+  geom_bar(stat = "identity",  fill = "lightblue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  labs(title = "Difference Between EcoRegion and EPA data Avg Percipitation (mm)") +
+  xlab("Ecoregion") +
+  ylab("Percipitation [mm]") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+#ggsave("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Figures/Difference-in-Max-Temp.pdf", width = 20, height = 10)
+```
+
+```{r}
+MAX_Temp_difference <-ggplot(EPA_ClimateNA_comp, aes(x = ecoRegion, y = avg_MAX_temp_diff)) +
+  geom_bar(stat = "identity",  fill = "pink", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  labs(title = "Difference Between EcoRegion and EPA data Avg Maximum Temperature (C)") +
+  xlab("Ecoregion") +
+  ylab("Temperature [C]") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+Min_Temp_difference <- ggplot(EPA_ClimateNA_comp, aes(x = ecoRegion, y = avg_MIN_temp_diff)) +
+  geom_bar(stat = "identity",  fill = "blue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  labs(title = "Difference Between EcoRegion and EPA data Minimum Temperature (C)") +
+  xlab("Ecoregion") +
+  ylab("Temperature [C]") +
+  theme(plot.title = element_text(hjust = 0.5))
 
 ```
 
+```{r}
+
+ggarrange(PPT_difference, 
+             ggarrange(climateNA_table, EPA_averages_table,ncol = 2, labels = c("climateNA","EPA")), 
+             nrow = 2
+)
+ggarrange(MAX_Temp_difference, 
+             ggarrange(climateNA_table, EPA_averages_table,ncol = 2, labels = c("climateNA","EPA")), 
+             nrow = 2
+)
+ggarrange(Min_Temp_difference, 
+             ggarrange(climateNA_table, EPA_averages_table,ncol = 2, labels = c("climateNA","EPA")), 
+             nrow = 2
+)
+
+```
+```{r}
+# Outlier analysis 
+central_basin <- regions_climate_drop %>% 
+  filter(ecoRegion == "Central Valley")
 
 
+plot(central_basin$MWMT, 
+```
 
 
 
@@ -892,7 +1053,7 @@ ecoRegion_df_splitter(plant_locations, df_names) # See Global-Functions Script
 
 
 ### Necessary Regions to split further 
-# Chap/3
+# Chap/29
 # Central Basin / 8
 # Central Valley / 3
 # Coast Range / 3
@@ -917,18 +1078,18 @@ splitter<-function(x,groups=10, EcoRegion){
 splitter(df,6)
 
 # Create the names 
-Chaparral <- "Chaparral"
-CentralBasin <- "CentralBasin"
-CentralValley <- "CentralValley"
-CoastRange <- "CoastRange"
-Klamath <- "Klamath"
-Mojave <- "Mojave"
-NorthernBasin <- "NorthernBasin"
-SierraNevadas <- "SierraNevadas"
-Sonoran <- "Sonoran"
-Baja <- "Baja"
+Chaparral <- "Chaparral_splits"
+CentralBasin <- "CentralBasin_splits"
+CentralValley <- "CentralValley_splits"
+CoastRange <- "CoastRange_splits"
+Klamath <- "Klamath_splits"
+Mojave <- "Mojave_splits"
+NorthernBasin <- "NorthernBasin_splits"
+SierraNevadas <- "SierraNevadas_splits"
+Sonoran <- "Sonoran_splits"
+Baja <- "Baja_splits"
 
-splitter(Cali_Coastal_Sage_Chap_Oak_Woodlands, 3, Chaparral)
+splitter(Cali_Coastal_Sage_Chap_Oak_Woodlands, 29, Chaparral)
 splitter(Central_Basin_and_Range, 8, CentralBasin)
 splitter(Central_Cali_Valley, 3, CentralValley)
 splitter(Coast_Range, 3, CoastRange)
@@ -939,17 +1100,6 @@ splitter(Sierra_Nevadas, 7, SierraNevadas)
 splitter(Sonoran_Desert, 5, Sonoran)
 splitter(Southern_and_Baja_Cali_PineOak_Mounts, 6, Baja)
 
-# Bring them back together.
-dfList <- list(Chaparral1, Chaparral2, Chaparral3,
-               CentralBasin1,CentralBasin2,CentralBasin3,CentralBasin4,CentralBasin5,CentralBasin6,CentralBasin7,CentralBasin8, 
-               CentralValley1, CentralValley2, CentralValley3,
-               CoastRange1, CoastRange2, CoastRange3,
-               Klamath1, Klamath2, Klamath3, Klamath4,
-               Mojave1,Mojave2,Mojave3,Mojave4,Mojave5,Mojave6,Mojave7,
-               NorthernBasin1, NorthernBasin2, NorthernBasin3, 
-               SierraNevadas1, SierraNevadas2, SierraNevadas3, SierraNevadas4,SierraNevadas5,SierraNevadas6, SierraNevadas7,
-               Sonoran1,Sonoran2,Sonoran3,Sonoran4,Sonoran5,
-               Baja1,Baja2,Baja3,Baja4,Baja5,Baja6, Cascades, Eastern_Cascades_Slopes_and_Foothills)
 
 ################################################################################
 
@@ -963,8 +1113,8 @@ split_list_singularEco <- function(list, df_names){
   }
 }
 
-
-ChapList <- list(Chaparral1, Chaparral2, Chaparral3)
+Pattern_chap <- grep("Chaparral_splits", names(.GlobalEnv), value = TRUE) # Grab everything in our global enviroment with Chaparral
+ChapList <- do.call("list", mget(Pattern_chap))
 
 Chap_dfList <- lapply(ChapList, function(x){
   y <- x %>% 
@@ -972,16 +1122,52 @@ Chap_dfList <- lapply(ChapList, function(x){
   relocate(Longitude, .before = Latitude)
   })
 
-df_names <- "Cali_Coastal_Sage_Chap_Oak_Woodlands"
+df_names <- "Chap_dfs"
 
 split_list_singularEco(Chap_dfList, df_names)
 
 # Reformat into a list yayy
+Pattern_chapdfs <- grep("Chap_dfs", names(.GlobalEnv), value = TRUE)
+ChapdfsList <- do.call("list", mget(Pattern_chapdfs))
 
-dfList_forThin <- list(Cali_Coastal_Sage_Chap_Oak_Woodlands1)
+split_list <- function(list){
+  for(i in 1:length(list)){
+    
+    assign(paste0("dfList_forThin"[i]), list[[i]], envir = .GlobalEnv)
+    
+  }
+}
 
 
-thinned_list <- lapply(dfList_forThin, function(x){
+for(i in 1:length(ChapdfsList)){
+  #dfList_forThin <- list(ChapdfsList[[i]])
+  #assign(dfList_forThin, paste0(dfList_forThin,i), envir=globalenv())
+  #assign(dfList_forThin, paste0(df_names[i]), list[[i]], envir = .GlobalEnv)
+  assign(paste0("dfList_forThinning"[i], list[[i]], envir = .GlobalEnv))
+}
+
+split_list(ChapdfsList)
+
+dfList_forThin1 <- list(Chap_dfs1)
+dfList_forThin2 <- list(Chap_dfs2)
+dfList_forThin3 <- list(Chap_dfs3)
+
+
+thinned_list1 <- lapply(dfList_forThin1, function(x){
+  thin.algorithm(x, 
+                 thin.par = 4,
+                 reps = 1)
+  }
+)
+
+thinned_list2 <- lapply(dfList_forThin2, function(x){
+  thin.algorithm(x, 
+                 thin.par = 4,
+                 reps = 1)
+  }
+)
+
+thinned_list3 <- lapply(dfList_forThin3, function(x){
   thin.algorithm(x, 
                  thin.par = 4,
                  reps = 1)

@@ -97,6 +97,9 @@ idigbio_plants <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-
 idigbio_plants_unique_SN <- idigbio_plants %>% 
   distinct(dwc.scientificName, .keep_all = TRUE)
 
+idigbio_plants_unique_SN %>% 
+  filter(dwc.occurrenceID == "c7fc7dec-ece0-4344-b351-7f75319ad3a1")
+
 # Create some subsets to test query time
 subset_100 <- idigbio_plants_unique_SN[1:100,10] # column 10 is the scientificName 
 subset_1000 <- idigbio_plants_unique_SN[1:1000,10]
@@ -123,6 +126,27 @@ test_df # Seems to have fixed the issue
 
 ### Apply this to our actual DF 
 idigbio_plants_unique_SN_db <- idigbio_plants_unique_SN[sapply(strsplit(as.character(idigbio_plants_unique_SN$dwc.scientificName)," "),length)>1,]
+
+### Its also important to keep these genus level observations for later in case we need them 
+idigbio_plants_genus_lvl_obs <- idigbio_plants_unique_SN[sapply(strsplit(as.character(idigbio_plants_unique_SN$dwc.scientificName)," "),length)==1,]
+
+### And grab 2 problematic occurrences with '.' that are only genus level observations and add them to this list
+problematic_genus_records <-idigbio_plants_unique_SN_db %>%
+  filter(dwc.scientificName == "cf. ricinus" |  dwc.scientificName == "aff. alnus")
+# cf. ricinus Is not a valid name and is having issues, not sure outside of just dropping it. https://www.idigbio.org/portal/records/e8c3a500-647b-446a-b372-b17c11592f3d
+# aff. alnus is also an issue, is it because of the special character '.' in the genus?
+### rbind them
+
+idigbio_plants_genus_lvl_obs <- rbind(idigbio_plants_genus_lvl_obs, problematic_genus_records)
+
+### Get rid of the ones in our dbl dataset
+idigbio_plants_unique_SN_db <- idigbio_plants_unique_SN_db %>% 
+  filter(!(dwc.scientificName == "cf. ricinus" |  dwc.scientificName == "aff. alnus"))
+
+```
+Write our genus level obs to a .csv and store them for later in case their needed 
+```{r eval=FALSE, include=FALSE}
+write.csv(idigbio_plants_genus_lvl_obs, "/home/jt-miller/Globi-Bees-Plant-Interactions/Processed-Data/idigbio-plants-genus-lvl-obs-only.csv", row.names = FALSE)
 ```
 
 ```{r}
@@ -160,6 +184,55 @@ time.taken # 4.78 minutes to resolve
 # Trying our full dataset
 start.time <- Sys.time()
 LCVP_resolved_idigbio_plants <- lcvp_search(idigbio_plants_unique_SN_db$dwc.scientificName) # Failed to run due to taxonomic name issue
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+Another Taxonomic Name issue 
+```{r}
+idigbio_plants_unique_SN_db %>%
+  filter(dwc.scientificName == "achnatherum x") # Taxon Match Fail 
+#  achnatherum x full name should be achnatherum x bloomeri (Bolander) Barkworth, note that this wasn't the parsing script that did this, it was like this from the pull. https://www.idigbio.org/portal/records/2c012181-5b72-463e-b484-8f2f7cf12c37
+
+
+idigbio_plants_unique_SN_db_fixed <- idigbio_plants_unique_SN_db %>% 
+  mutate(dwc.scientificName = replace(dwc.scientificName, dwc.scientificName ==  "achnatherum x" ,"achnatherum x bloomeri (Bolander) Barkworth" ))
+
+idigbio_plants_unique_SN_db_fixed %>%
+  filter(dwc.scientificName == "achnatherum x") # Doesnt appear
+
+idigbio_plants_unique_SN_db_fixed %>%
+  filter(dwc.scientificName == "achnatherum x bloomeri (Bolander) Barkworth") # Confirmed Fix
+
+
+```
+```{r}
+# Retry full dataset 
+start.time <- Sys.time()
+LCVP_resolved_idigbio_plants <- lcvp_search(idigbio_plants_unique_SN_db_fixed$dwc.scientificName) # Failed to run due to taxonomic name issue
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken # Something errors out somewhere down the line...odd the error is very general as well so Not super helpful for debugging
+```
+Proceeding to cut the df into 6 sections in order to debug 
+```{r}
+splitter<-function(x,groups=y){
+  dd<-as.data.frame(x)
+  dd$split<-sample(groups,size=nrow(dd),replace=T)
+  for(i in 1:groups){
+    ddd<-dd[dd$split==i,]
+    assign(paste0("Plants_for_Resolution",i),ddd,envir=globalenv())
+  }
+}
+splitter(idigbio_plants_unique_SN_db_fixed, groups = 6)
+
+start.time <- Sys.time()
+LCVP_resolved_idigbio_plants1 <- lcvp_search(Plants_for_Resolution1$dwc.scientificName)
+LCVP_resolved_idigbio_plants2 <- lcvp_search(Plants_for_Resolution2$dwc.scientificName)
+LCVP_resolved_idigbio_plants3 <- lcvp_search(Plants_for_Resolution3$dwc.scientificName)
+LCVP_resolved_idigbio_plants4 <- lcvp_search(Plants_for_Resolution4$dwc.scientificName)
+LCVP_resolved_idigbio_plants5 <- lcvp_search(Plants_for_Resolution5$dwc.scientificName)
+LCVP_resolved_idigbio_plants6 <- lcvp_search(Plants_for_Resolution6$dwc.scientificName)
 end.time<- Sys.time()
 time.taken <- end.time - start.time
 time.taken

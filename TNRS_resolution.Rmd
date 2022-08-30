@@ -1,0 +1,274 @@
+---
+title: "TNRS_resolution"
+author: "JT Miller"
+date: "2022-08-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### A markdown for exploring the package TNRS for plant taxonomic resolution 
+
+Load Necessary Libraries
+```{r}
+library(TNRS)
+library(tidyverse)
+```
+
+Bring in idigbio occurrence data for the western North America 
+```{r}
+idigbio_plants <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Raw-Data/Plant-Data/idigbio-plant-unresolved-names.csv")
+```
+Lets take a look at just plant species 
+```{r}
+idigbio_plants_unique_SN <- idigbio_plants %>% 
+  distinct(dwc.scientificName, .keep_all = TRUE)
+```
+
+
+A problem with using the TNRS API is that we are only capable of resolving 5000 scientificNames during a query...considering we have 51,729 observations we need to run a for loop 11 times. Maybe not too bad? 
+
+Getting to understand the TNRS functionality 
+```{r}
+# Comparing subsets
+subset_100 <- idigbio_plants_unique_SN[1:100,10] # column 10 is the scientificName 
+subset_1000 <- idigbio_plants_unique_SN[1:1000,10]
+subset_10000 <- idigbio_plants_unique_SN[1:10000,10]
+subset_5000 <- idigbio_plants_unique_SN[1:5000, 10]
+
+tnrs_sources <- TNRS_sources() 
+
+print(tnrs_sources) # Possible resources we may use. 
+
+resolved_subset <- TNRS(subset_100, # data
+                        sources = "wfo", # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "best", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+
+# What happens when we provide multiple sources?
+resolved_subset2 <- TNRS(subset_100, # data
+                        sources = c("wfo", "tropicos"),# the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "best", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+# Maintains the same number of observations, however now some of the sources have been replaced with tropicos
+resolved_subset2 %>% 
+  group_by(Source) %>% 
+  count()
+
+tropicos_pulls <- resolved_subset2 %>% 
+  filter(Source == "tropicos")
+
+name_comp <- tropicos_pulls$Name_submitted
+
+# Lets ask, why did it replace those records?
+
+resolved_subset %>% 
+  filter(Name_submitted %in% name_comp) %>% 
+  mutate(Overall_score = as.integer(Overall_score)) %>% 
+  summarise(Overall_score_sum = sum(Overall_score))
+
+tropicos_pulls %>% 
+   filter(Name_submitted %in% name_comp) %>% 
+  mutate(Overall_score = as.integer(Overall_score)) %>% 
+  summarise(Overall_score_sum = sum(Overall_score))
+
+# Suggesting that the overall score improves by the inclusion of the tropicos source. 
+
+resolved_subset %>% 
+  filter(Name_submitted %in% name_comp)
+
+tropicos_pulls
+
+# We can also look at a small dataset such as this pretty easily and manually compare them. It does indeed increase the scores for adding tropicos as a taxonomic resource. 
+
+# It seems probable that we could achieve the same results by changing the matches argument
+
+resolved_subset3 <- TNRS(subset_100, # data
+                        sources = c("wfo","tropicos"), # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "all", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+resolved_subset3 %>% 
+  filter(Name_submitted %in% name_comp) %>% 
+  select(Name_submitted, Overall_score, Source)
+
+# Doesnt really seem like it...odd. As an example epilobium hallianum 
+
+resolved_subset %>% 
+  filter(Name_submitted == "epilobium hallianum")
+
+resolved_subset %>% 
+  filter()
+resolved_subset2 %>% 
+  filter(Name_submitted == "epilobium hallianum")
+
+resolved_subset3 %>% 
+  filter(Name_submitted == "epilobium hallianum") 
+
+# Now lets try to understand what exactly the authors mean by the classification argument
+
+
+resolved_subset4 <- TNRS(subset_100, # data
+                        sources = "wfo", # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "tropicos", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "all", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+
+resolved_subset5 <- TNRS(subset_100, # data
+                        sources = "wfo", # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "all", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+
+
+# Lets check if these two agree with eachother. 
+classification_comparison <- ifelse(resolved_subset4$Accepted_species == resolved_subset5$Accepted_species, "Agree",
+                                    ifelse(resolved_subset4$Accepted_species != resolved_subset5$Accepted_species, 
+                                           "Disagree"))
+
+unique(classification_comparison) # Seems that it is indeed the same whether using wfo or tropicos as the classification method. Which agrees with the documentation on the classification argument.
+  
+# Seems that classification can only be one argument maximum.
+
+# 
+
+# Warnings: https://tnrs.biendata.org/warnings/ Suggests that there are Partial Matches (1), meaning that Name matched is a higher taxon than the name submitted. 
+
+
+# side note: If u feed the TNRS function a list of redundant names, itll return a list of distinct back. 
+```
+
+Next, Lets test where we will hit bottle necks with the API
+```{r}
+# the github issues page mentions that 1,000 was a soft cap made for the r version of the API, however it was updated to 5,000 at some point. Lets test this 
+start.time <- Sys.time()
+thousand_resolved <- TNRS(subset_1000, # data
+                        sources = "wfo", # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "best", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken #33 seconds to resolve
+
+
+start.time <- Sys.time()
+
+fiveThousand_resolved <- TNRS(subset_5000, # data
+                        sources = "wfo", # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "best", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+end.time<- Sys.time()
+
+difference <- difftime(end.time, start.time, units = "minutes")
+difference #150 seconds to resolve, appears that the resolution time is a linear function at least from there. 
+
+# Now the big question, does it fail when trying to query more than 5000 records? 
+
+subset_5001 <- idigbio_plants_unique_SN[1:5001,10] # column 10 is the scientificName
+
+start.time <- Sys.time()
+hardCap_resolved <- TNRS(subset_5001, # data
+                        sources = "wfo", # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "best", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken # 156 seconds to resolve, appears that the resolution time is a linear function at least from there. 
+
+
+# And Test the limits further
+subset_10000 <- idigbio_plants_unique_SN[1:10000,10] # column 10 is the scientificName
+
+start.time <- Sys.time()
+tenThousand_resolved <- TNRS(subset_10000, # data
+                        sources = "wfo", # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "best", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken # 307 seconds to resolve, appears that the resolution time is a linear function at least from there. 
+
+# So it does work however you do generate a warning, not sure if there is any disagreement? I suppose we can check via manual
+
+subset_5000to10000 <- idigbio_plants_unique_SN[5000:10000,10]
+
+tenThousand2ndHalf_resolved <- TNRS(subset_5000to10000, # data
+                        sources = "wfo", # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "best", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+
+tenThousand1stHalf_resolved <- tenThousand_resolved[5000:10000,]
+
+CapComparison <- ifelse(tenThousand1stHalf_resolved$Accepted_species == tenThousand2ndHalf_resolved$Accepted_species, "Agree",
+                                    ifelse(tenThousand1stHalf_resolved$Accepted_species != tenThousand2ndHalf_resolved$Accepted_species, 
+                                           "Disagree"))
+
+unique(CapComparison) # All comparisons are equivalent. 
+```
+For interests sake, can we write a for-loop to look at time it takes to resolve names? 
+```{r}
+x <- rep(NA, 10) # Create a holding vector to store our time 
+yset <- c(1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000) # Y will be the number of names pulled each query
+
+yset <- as.integer(yset)
+for(i in 1:length(yset)){
+  
+  y <- yset[i]
+  for(j in 1:length(x)){
+plant_name_subset <- idigbio_plants_unique_SN[1:max(y),10]
+  
+start.time <- Sys.time()
+resolved_plants <- TNRS(plant_name_subset, # data
+                        sources = "wfo", # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "best", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+end.time <- Sys.time()
+difference <- difftime(end.time, start.time, units = "secs")
+x[j] <- difference #33 seconds to resolve
+}
+
+return(list(x))
+  
+}
+
+plot(yset, x)
+
+
+
+
+
+
+```
+

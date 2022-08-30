@@ -221,7 +221,7 @@ reordered_plant_df <- plant_grid %>%
 
 Create the .csv for plants occurrences
 ```{r eval=FALSE, include=FALSE}
-write.csv(reordered_plant_df, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-plant-pull.csv")
+write.csv(reordered_plant_df, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-plant-pull.csv", row.names = FALSE)
 ```
 
 
@@ -297,7 +297,7 @@ reordered_bees_df <- bees_grid %>%
 
 Create the .csv for the data pull
 ```{r eval=FALSE, include=FALSE}
-write.csv(reordered_bees_df, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-bee-pull.csv")
+write.csv(reordered_bees_df, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-bee-pull.csv", row.names = FALSE)
 ```
 
 For their CoOccurrence
@@ -308,7 +308,7 @@ combined_occurrences <- rbind(reordered_plant_df, reordered_bees_df)
 
 Create the .csv for the data pull 
 ```{r}
-write.csv(combined_occurrences, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-combined-occurrence-pull.csv")
+write.csv(combined_occurrences, "/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-combined-occurrence-pull.csv", row.names = FALSE)
 ```
 
 
