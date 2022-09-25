@@ -1,0 +1,19 @@
+---
+title: "SoilGrids"
+author: "JT Miller"
+date: "2022-08-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Using SoilGrids to understand the soil composition of the ecoRegions, hopefully a route for understanding the flora composition with the regions themselves. 
+
+```{r}
+install.packages("rgdal")
+install.packages("XML")
+install_github("envirometrix/landmap")
+```
+

@@ -1,0 +1,1231 @@
+---
+title: "Climate-Comparisons"
+author: "JT Miller"
+date: "2022-08-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### This md is an analysis on climate in the Extended California Ecoregions
+
+```{r}
+library(tidyverse)
+library(sf)
+library(spThin)
+library(car)
+library(ggpubr)
+library(gridExtra)
+```
+
+
+First, bring in the data. Data was pulled from climateNA using the years 1961-1990 (These years are before the large climatic shift, therefore we're going to start with this as a baseline for comparison)
+```{r}
+ecoregion_grid <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-grid-pull2_Normal_1961_1990Y.csv")
+```
+
+Lets take a look at mean annual temperature using boxplots for the ecoregions
+```{r}
+
+# Since Simpsons Paradox is a thing, lets try to visualize our data a bit 
+
+
+
+
+
+
+
+ggplot(data = ecoregion_grid, aes(x = ecoRegion, y = MAT, fill = ecoRegion)) +
+  geom_boxplot() +
+  theme_bw() + 
+  theme(axis.text.x = element_blank())
+  
+```
+And lets compare that to where the bees are found using the climateNA pulls on their occurrences
+```{r}
+bee_grid <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-bee-pull2_Normal_1961_1990Y.csv")
+
+ggplot(data = bee_grid, aes(x = ecoRegion, y = MAT, fill = ecoRegion)) +
+  geom_boxplot() +
+  theme_bw() + 
+  theme(axis.text.x = element_blank())
+
+bee_grid %>% 
+  group_by(ecoRegion) %>% 
+  summarise(mean(MAT), mean(MWMT), mean(MCMT), mean(TD), mean(DD5), mean(MAP))
+
+
+# Comparison 
+
+ecoregion_grid %>% 
+  group_by(ecoRegion) %>% 
+  summarise(mean(MAT), mean(MWMT), mean(MCMT), mean(TD), mean(DD5), mean(MAP))
+
+```
+Histogram Comparisons 
+```{r}
+
+shap_oak_woodlands_grid <- subset(ecoregion_grid, ecoregion_grid$ecoRegion == "Cali_Coastal_Sage_Chap_Oak_Woodlands")
+
+Chap_bees <- bee_grid %>% 
+  filter(ecoRegion =="Cali_Coastal_Sage_Chap_Oak_Woodlands")
+
+ggplot(data = shap_oak_woodlands_grid, aes(x = MAT)) +
+  geom_histogram()
+
+
+ggplot(data = Chap_bees, aes(x = MAT)) +
+  geom_histogram()
+```
+
+### Creating a Climograph using the gridded regions with season data. 
+
+bring in the data 
+```{r}
+regions_climate <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-grid-pull2_Normal_ALL_1961_1990MSY.csv")
+
+library(tidyverse)
+# Find possible NAs 
+regions_climate_NAs <- regions_climate %>% 
+  filter(Tmax01 == -9999) # There are 23 occurrence pts present with listed NAs, lets drop them. 
+
+regions_climate_drop <- regions_climate %>% 
+  filter(!(Tmax01 == -9999))
+```
+
+Take Averages of variables of interest. 
+```{r}
+regions_climate_avgs <- regions_climate_drop %>% 
+  group_by(ecoRegion) %>%  # Group the following actions by ecoRegion
+  mutate(across(contains("Tave"), mean, # Go across any column that matches the string Tave and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Tave"), round, 1)) %>%  # Round the columns to one decimal point, note this isn't sig figs but the way climateNA had their data set up. Probably check into this later. 
+  mutate(across(contains("PPT"), mean, # Do the same for precipitation
+          .names = "{fn}_{col}")) %>% 
+  mutate(across(contains("1_PPT"), round, 0)) %>% 
+  mutate(across(contains("RAD"), mean, # Go across any column that matches the string RAD and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_RAD"), round, 1)) %>%
+  mutate(across(contains("DD5"), mean, # Go across any column that matches the string DD5 and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_DD5"), round, 0)) %>%
+  mutate(across(contains("RH"), mean, # Go across any column that matches the string RH and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_RH"), round, 0)) %>%
+  mutate(across(contains("CMI"), mean, # Go across any column that matches the string CMI and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_CMI"), round, 0)) %>% 
+  mutate(across(contains("Eref"), mean, # Go across any column that matches the string RH and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Eref"), round, 0)) %>% 
+  mutate(across(contains("Tmax"), mean, # Go across any column that matches the string Tave and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Tmax"), round, 1)) %>% 
+  mutate(across(contains("Tmin"), mean, # Go across any column that matches the string Tave and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Tmin"), round, 1))
+  
+  
+
+regions_avgs <- rename_with(regions_climate_avgs, ~ gsub("1_", "avg_", .x, fixed = TRUE))
+
+regions_avgs_d <- distinct(regions_avgs, ecoRegion, .keep_all = TRUE)
+
+regions_avgs_less <- regions_avgs_d %>% 
+  select(ecoRegion, contains("avg_"))
+
+### Reorganize this df for later use ###
+
+regions_avg_temp <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Tave"), 
+    names_to = "temp_month",
+    values_to = "avg_temp_value") %>% 
+  select(ecoRegion, temp_month, avg_temp_value)
+
+regions_avg_PPT <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_PPT"), 
+    names_to = "PPT_month",
+    values_to = "avg_PPT_value") %>% 
+  select(ecoRegion, PPT_month, avg_PPT_value)
+
+regions_avg_Rad <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Rad"), 
+    names_to = "Rad_month",
+    values_to = "avg_Rad_value") %>% 
+  select(ecoRegion, Rad_month, avg_Rad_value)
+
+regions_avg_DD5 <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_DD5"), 
+    names_to = "DD5_month",
+    values_to = "avg_DD5_value") %>% 
+  select(ecoRegion, DD5_month, avg_DD5_value)
+
+regions_avg_RH <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_RH"), 
+    names_to = "RH_month",
+    values_to = "avg_RH_value") %>% 
+  select(ecoRegion, RH_month, avg_RH_value)
+
+regions_avg_CMI <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_CMI"), 
+    names_to = "CMI_month",
+    values_to = "avg_CMI_value") %>% 
+  select(ecoRegion, CMI_month, avg_CMI_value)
+
+regions_avg_Eref <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Eref"), 
+    names_to = "Eref_month",
+    values_to = "avg_Eref_value") %>% 
+  select(ecoRegion, Eref_month, avg_Eref_value)
+
+regions_avg_Tmax <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Tmax"), 
+    names_to = "Tmax_month",
+    values_to = "avg_Tmax_value") %>% 
+  select(ecoRegion, Tmax_month, avg_Tmax_value)
+
+regions_avg_Tmin <- regions_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Tmin"), 
+    names_to = "Tmin_month",
+    values_to = "avg_Tmin_value") %>% 
+  select(ecoRegion, Tmin_month, avg_Tmin_value)
+
+regions_temp_percipitation <- cbind(regions_avg_PPT, regions_avg_temp, regions_avg_Tmax, regions_avg_Tmin)
+
+month_v <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Winter", "Spring", "Summer", "Fall")
+
+regions_df <- regions_temp_percipitation %>% 
+  select(ecoRegion...1, avg_PPT_value, avg_temp_value,avg_Tmax_value,avg_Tmin_value) %>% 
+  add_column(months = rep(month_v, 12)) %>% 
+  rename(ecoRegion = ecoRegion...1)
+###
+ 
+
+
+
+list_1 <- lapply(1:length(unique(regions_avgs_d$ecoRegion)),
+                function(i)filter(regions_avgs_d, ecoRegion == unique(regions_avgs_d$ecoRegion)[i]))
+
+df_names <- c(regions_avgs_d$ecoRegion)
+
+split_df <- function(list, df_names){
+  for(i in 1:length(list)){
+   
+    assign(paste0(df_names[i]), list[[i]], envir = .GlobalEnv)
+  
+}
+  }
+
+
+list_1
+
+
+```
+
+```{r}
+### Split up the dataframes using our new fxn. 
+split_df(list_1, df_names)
+
+```
+
+Now to make a climogram/climograph. The goal is to create a full climate analysis for each ecoregion. 
+requirements:
+* X-axis should be the 12 months (& variation with the Seasons) 
+* Y-axis #1 should be percipitation 
+* Y-axis #2 should be Temperature
+* Somehow include Max Temp (Red dot?)
+* Somehow include Coldest Temp (Blue dot?)
+* Add Solar Radiation MJ m^-2 d^-1 (?)
+```{r}
+# Example code for a climatic graph using ggplot2
+df <- as.data.frame(c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+colnames(df) <- c("month")
+df$month <- factor(df$month, levels = month.abb)
+df$celsius <- c(-26.0, -24.5, -18.9, -9.8, -1.0, 7.0, 12.7, 12.3, 6.4, -1.2, -12.7, -21.9)
+df$prec_mm <- c(18.7, 16.6, 18.1, 23.6, 30.0, 44.2, 59.8, 69.4, 69.9, 48.4, 35.5, 18.4)
+
+
+df2 <- as.data.frame(c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+colnames(df2) <- c("month")
+df2$month <- factor(df$month, levels = month.abb)
+df2$celsius <- c(Coast_Range[,271:282])
+df2$prec_mm <- c(Coast_Range[,287:298])
+df2$max_celsius <- c(Coast_Range[,387:398])
+df2$min_celsius <- c(Coast_Range[,403:414])
+
+df2$celsius <- unlist(df2$celsius)
+df2$prec_mm<- unlist(df2$prec_mm)
+df2$max_celsius <- unlist(df2$max_celsius)
+df2$min_celsius <- unlist(df2$min_celsius)
+
+ggplot(data = df, mapping = aes(x = month, y = prec_mm, group = 1)) + 
+  geom_bar(stat = "identity", color="blue", fill="blue", width = 0.5) + 
+  geom_line(mapping = aes(y = celsius+30), color="red", size=1.5) + # Scale data to match desired scale
+  scale_y_continuous("Precipitation [mm]", 
+                     sec.axis = sec_axis(~ . -30, name = "Temperature [°C]") # Reverse transformation to match data
+  )
+
+thinned <- floor(seq(from=1,to=dim(df)[1],length=70))
+
+ggplot(data = df, mapping = aes(x = month, y = prec_mm, group = 1)) + 
+  geom_bar(stat = "identity", color="blue", fill="blue", width = 0.5) + 
+  geom_line(mapping = aes(y = celsius+30), color="red", size=1.5) + # Scale data to match desired scale
+  geom_point(data=df[thinned,],aes(x=month,y=celsius+30)) +
+  scale_y_continuous("Precipitation [mm]", 
+                     sec.axis = sec_axis(~ . -30, name = "Temperature [°C]") # Reverse transformation to match data
+  )
+
+ggplot(data = df2, mapping = aes(x = month, y = prec_mm, group = 1)) + 
+  geom_bar(stat = "identity", color="blue", fill="blue", width = 0.5) + 
+  geom_line(mapping = aes(y = celsius), color="red", size=1.5) + # Scale data to match desired scale
+  scale_y_continuous("Precipitation [mm]", 
+                     sec.axis = sec_axis(~ . *10, name = "Temperature [°C]") # Reverse transformation to match data
+  )
+```
+### Trying a slightly different method 
+```{r}
+### This is what I like. 
+df2 %>% 
+  ggplot(aes(x=month, group=1)) + 
+  geom_bar(aes(y=prec_mm/10, col = "Percipitation  [mm]"), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y=celsius, col="Avg. Temp [C]"), size = 1) + 
+  geom_line(aes(y=max_celsius, col = "Max. Avg. Temp [C]")) +
+  geom_line(aes(y=min_celsius, col = "Min. Avg.  Temp [C]")) +
+  geom_point(aes(y=celsius)) +
+  theme_bw() +
+  scale_color_manual(values=c("darkorange", "red" ,"blue", "black")) +
+  scale_y_continuous(sec.axis = sec_axis(~.*10, name = "Percipitation [mm]")) +
+  labs(x="month", y="Temperature [C]")
+```
+```{r}
+# Now lets come up with a fancy way of doing all of that in a facet grid.
+regions_df_monthly <- regions_df %>% 
+  filter(!(months %in% c("Winter", "Spring", "Summer", "Fall")))
+
+regions_df_monthly$months <- as.character(regions_df_monthly$months)
+
+regions_df_monthly$months <- factor(regions_df_monthly$months, levels = unique(regions_df_monthly$months))
+
+regions_df_monthly %>% 
+  ggplot(aes(x=months, group=1)) + 
+  geom_bar(aes(y=avg_PPT_value/10, col = "Percipitation  [mm]"), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y=avg_temp_value, col="Avg. Temp [C]"), size = 1) + 
+  geom_line(aes(y=avg_Tmax_value, col = "Max. Avg. Temp [C]")) +
+  geom_line(aes(y=avg_Tmin_value, col = "Min. Avg.  Temp [C]")) +
+  geom_point(aes(y=avg_temp_value)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(.~ecoRegion) +
+  scale_color_manual(values=c("darkorange", "red" ,"blue", "black")) +
+  scale_y_continuous(sec.axis = sec_axis(~.*10, name = "Percipitation [mm]")) +
+  labs(x="month", y="Temperature [C]")
+
+```
+```{r}
+# Perhaps we can make this look a bit nicer
+
+
+# Looks like we need to 'normalize' temperature in order to work with the weird limits imposed by having two axes
+
+# Transformation: Found on https://stackoverflow.com/questions/58774705/y-limits-for-ggplot-with-sec-axis
+#y <- a + (Temp - mean(Temp)/sd(Temp)) * s
+
+ylim.prim <- c(min(regions_df_monthly$avg_PPT_value), max(regions_df_monthly$avg_PPT_value))   # in this example, precipitation
+ylim.sec <- c(min(regions_df_monthly$avg_Tmin_value), max(regions_df_monthly$avg_Tmax_value))    # in this example, temperature
+
+b <- diff(ylim.prim)/diff(ylim.sec)
+a <- ylim.prim[1] - b*ylim.sec[1] # there was a bug here
+
+ggplot(regions_df_monthly, aes(months, avg_PPT_value)) +
+  geom_col() +
+  geom_line(aes(y = a + avg_temp_value*b), color = "red") +
+  scale_y_continuous("Precipitation", sec.axis = sec_axis(~ (. - a)/b, name = "Temperature")) +
+  facet_wrap(~ecoRegion) +
+  scale_x_discrete("Month", breaks = 1:12) 
+
+
+regions_df_monthly %>% 
+  ggplot(aes(x=months, group=1)) + 
+  geom_bar(aes(y=avg_PPT_value, col = "Percipitation  [mm]"), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y = a + avg_temp_value*b, col="Avg. Temp [C]"), size = 1) + 
+  geom_line(aes(y = a + avg_Tmax_value*b, col = "Max. Avg. Temp [C]")) +
+  geom_line(aes(y = a + avg_Tmin_value*b, col = "Min. Avg.  Temp [C]")) +
+  geom_point(aes(y = a + avg_temp_value*b)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(.~ecoRegion) +
+  scale_color_manual(values=c("darkorange", "red" ,"blue", "black")) +
+  scale_y_continuous(sec.axis = sec_axis(~ (. - a)/b, name = "Percipitation [mm]")) +
+  labs(x="month", y="Temperature [C]")
+
+# Making it look a bit nicer 
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Coast_Range"] = "Coast Range"
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Central_Basin_and_Range"] = "Central Basin"
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Sierra_Nevadas"] = "Sierra Nevadas"
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Mojave_Basin_and_Range"] = "Mojave"
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Cali_Coastal_Sage_Chap_Oak_Woodlands"] = "Coastal Chaparral & Oak Woodlands"
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Central_Cali_Valley"] = "Central Valley"
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Klamath_Mountains"] = "Klamath Mountains"
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Southern_and_Baja_Cali_PineOak_Mounts"] = "Baja California"
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Northern_Basin_and_Range"] = "Northern Basin & Range"
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Sonoran_Desert"] = "Sonoran Desert"
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Eastern_Cascades_Slopes_and_Foothills"] = "Eastern Cascades"
+regions_df_monthly$ecoRegion[regions_df_monthly$ecoRegion == "Coast_Range"] = "Coast Range"
+
+
+### This is a close to final product ###
+regions_df_monthly %>% 
+  ggplot(aes(x=months, group=1)) + 
+  geom_bar(aes(y=avg_PPT_value, col = "Percipitation  [mm]"), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y = a + avg_temp_value*b, col="Avg. Temp [C]"), size = 1) + 
+  geom_line(aes(y = a + avg_Tmax_value*b, col = "Max. Avg. Temp [C]")) +
+  geom_line(aes(y = a + avg_Tmin_value*b, col = "Min. Avg.  Temp [C]")) +
+  geom_point(aes(y = a + avg_temp_value*b)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(.~ecoRegion) +
+  scale_color_manual(values=c("darkorange", "red" ,"blue", "black")) +
+  scale_y_continuous(sec.axis = sec_axis(~ (. - a)/b, name = "Percipitation [mm]")) +
+  labs(x="month", y="Temperature [C]", col="Climatic Variables") 
+
+ggsave("EcoRegions Climate.pdf", width = 20, height = 10)
+
+regions_df_monthly %>% 
+  group_by(ecoRegion) %>% 
+  summarise(yearly_percipitation = sum(avg_PPT_value)*0.0393701) #(Close) to what has been recently published, but lets talk with Katja and Pam about this.
+# Source: https://oehha.ca.gov/media/epic/downloads/cc_precipitation2018.pdf
+```
+
+```{r}
+# Seasonal Version
+regions_df_seasons <- regions_df %>% 
+  filter(months %in% c("Winter", "Spring", "Summer", "Fall"))
+
+regions_df_seasons$months <- as.character(regions_df_seasons$months)
+
+regions_df_seasons$months <- factor(regions_df_seasons$months, levels = unique(regions_df_seasons$months))
+
+regions_df_seasons %>% 
+  ggplot(aes(x=months, group=1)) + 
+  geom_bar(aes(y=avg_PPT_value/10, col = "Percipitation  [mm]"), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y=avg_temp_value, col="Avg. Temp [C]"), size = 1) + 
+  geom_line(aes(y=avg_Tmax_value, col = "Max. Avg. Temp [C]")) +
+  geom_line(aes(y=avg_Tmin_value, col = "Min. Avg.  Temp [C]")) +
+  geom_point(aes(y=avg_temp_value)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(.~ecoRegion) +
+  scale_color_manual(values=c("darkorange", "red" ,"blue", "black")) +
+  scale_y_continuous(sec.axis = sec_axis(~.*10, name = "Percipitation [mm]")) +
+  labs(x="month", y="Temperature [C]")
+
+
+```
+### Now to pose another question, Do the EcoRegion's full climate's match where occurrences are recorded for bees? 
+In other words, does the ecoRegion's overall climate equally well describe where the bees are being recorded? 
+
+First Bring in Geographic Coords of bees climateNA pull
+```{r}
+# Read in the bee data. 
+
+bee_locations <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-bee-pull2_ALL_Normal_1961_1990MSY.csv")
+
+locations_only <- bee_locations %>% 
+  select(Latitude, Longitude) %>% 
+  relocate(Longitude, .before = Latitude)
+
+subset_loc <- locations_only[1:10000,] # It appears that the fxn cannot handle when the files are too large.
+
+# How large CAN it handle? Seems to be at least 10,000 
+
+# The best way I think I can handle this without messing too much with subsets is to group by ecoregion > thin > recreate df
+
+
+df_names <- c(unique(bee_locations$ecoRegion))
+
+ecoRegion_df_splitter(bee_locations, df_names) # See Global-Functions Script
+
+```
+
+Reduce Our Ecoregion Sets
+```{r}
+dfList <- list(Cali_Coastal_Sage_Chap_Oak_Woodlands, Cascades, Central_Basin_and_Range, Central_Cali_Valley, Coast_Range, Eastern_Cascades_Slopes_and_Foothills, Klamath_Mountains, Mojave_Basin_and_Range, Northern_Basin_and_Range, Sierra_Nevadas, Sonoran_Desert, Southern_and_Baja_Cali_PineOak_Mounts)
+
+new_dfList <- lapply(dfList, function(x){
+  y <- x %>% 
+  select(Latitude, Longitude) %>% 
+  relocate(Longitude, .before = Latitude)
+  })
+
+df_names <- c("Cali_Coastal_Sage_Chap_Oak_Woodlands", "Cascades", "Central_Basin_and_Range", "Central_Cali_Valley", "Coast_Range", "Eastern_Cascades_Slopes_and_Foothills", "Klamath_Mountains", "Mojave_Basin_and_Range", "Northern_Basin_and_Range", "Sierra_Nevadas", "Sonoran_Desert", "Southern_and_Baja_Cali_PineOak_Mounts")
+
+split_list(new_dfList, df_names)
+
+# Reformat into a list yayy
+
+dfList_forThin <- list(Cali_Coastal_Sage_Chap_Oak_Woodlands, Cascades, Central_Basin_and_Range, Central_Cali_Valley, Coast_Range, Eastern_Cascades_Slopes_and_Foothills, Klamath_Mountains, Mojave_Basin_and_Range, Northern_Basin_and_Range, Sierra_Nevadas, Sonoran_Desert, Southern_and_Baja_Cali_PineOak_Mounts)
+
+# Extract and Ready for thinning
+```
+
+# Using spThin to remove occurrences within 4km of eachother in order to reduce sampling bias 
+```{r}
+thinned_list <- lapply(dfList_forThin, function(x){
+  thin.algorithm(x, 
+                 thin.par = 4,
+                 reps = 1)
+  }
+)
+
+
+
+split_list_dfer(thinned_list, df_names)
+
+```
+
+Bring the dataset back together 
+```{r}
+# First, bring the ecoregions thinned occurrences back
+thinned_regions <- rbind(Cali_Coastal_Sage_Chap_Oak_Woodlands, Cascades, Central_Basin_and_Range, Central_Cali_Valley, Coast_Range, Eastern_Cascades_Slopes_and_Foothills, Klamath_Mountains, Mojave_Basin_and_Range, Northern_Basin_and_Range, Sierra_Nevadas, Sonoran_Desert, Southern_and_Baja_Cali_PineOak_Mounts)
+
+# Use semi_join on the parent df to filter down to a spatially thinned dataset
+thinned_bee_occurrences <- semi_join(bee_locations, thinned_regions, by = c("Longitude", "Latitude"))
+```
+
+
+
+Visualize our newly thinned occurrence map
+```{r}
+thinned_bee_occurrences_w_crs <- st_as_sf(thinned_bee_occurrences, coords = c('Longitude', 'Latitude'), crs = 4326, remove = FALSE)
+bee_locations_w_crs <- st_as_sf(bee_locations, coords = c('Longitude', 'Latitude'), crs = 4326, remove = FALSE)
+plot(st_geometry(thinned_bee_occurrences_w_crs))
+
+
+plot(st_geometry(bee_locations_w_crs))
+
+
+# Measure the distances to be sure we hit the right distance for each point
+measurements <- thinned_bee_occurrences_w_crs %>%
+  mutate(
+    lead = geometry[row_number() + 1],
+    dist = st_distance(geometry, lead, by_element = T)) %>% 
+  mutate(km_dist = as.integer(dist)) %>% 
+  mutate(km_dist = km_dist/1000) 
+
+measurements_wout_NAs <- measurements %>% 
+  filter(!is.na(km_dist))
+
+min(measurements_wout_NAs$km_dist) # Success! 
+
+# Semi_join to get rid of that one problematic location
+final_thinned_bees <- semi_join(bee_locations, measurements_wout_NAs, by = c("Longitude", "Latitude"))
+```
+
+Now, we can repeat the climograph process for just the bee occurrences. 
+```{r}
+# Find possible NAs 
+
+
+bee_NAs<- final_thinned_bees %>% 
+  select(!c(Elevation, contains("Rad"), contains("Mar"))) %>% 
+  filter(if_any(is.numeric, ~ .x == -9999))
+
+# None present, proceed 
+
+bees_climate_avgs <- final_thinned_bees %>% 
+  group_by(ecoRegion) %>%  # Group the following actions by ecoRegion
+  mutate(across(contains("Tave"), mean, # Go across any column that matches the string Tave and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Tave"), round, 1)) %>%  # Round the columns to one decimal point, note this isn't sig figs but the way climateNA had their data set up. Probably check into this later. 
+  mutate(across(contains("PPT"), mean, # Do the same for precipitation
+          .names = "{fn}_{col}")) %>% 
+  mutate(across(contains("1_PPT"), round, 0)) %>% 
+  mutate(across(contains("DD5"), mean, # Go across any column that matches the string DD5 and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_DD5"), round, 0)) %>%
+  mutate(across(contains("RH"), mean, # Go across any column that matches the string RH and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_RH"), round, 0)) %>%
+  mutate(across(contains("CMI"), mean, # Go across any column that matches the string CMI and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_CMI"), round, 0)) %>% 
+  mutate(across(contains("Eref"), mean, # Go across any column that matches the string RH and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Eref"), round, 0)) %>% 
+  mutate(across(contains("Tmax"), mean, # Go across any column that matches the string Tave and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Tmax"), round, 1)) %>% 
+  mutate(across(contains("Tmin"), mean, # Go across any column that matches the string Tave and give a mean
+         .names = "{fn}_{col}")) %>% # Rename the columns
+  mutate(across(contains("1_Tmin"), round, 1))
+
+bees_avgs <- rename_with(bees_climate_avgs, ~ gsub("1_", "avg_", .x, fixed = TRUE))
+
+bees_avgs_d <- distinct(bees_avgs, ecoRegion, .keep_all = TRUE)
+
+bees_avgs_less <- bees_avgs_d %>% 
+  select(ecoRegion, contains("avg_"))
+
+### Reorganize this df for later use ###
+
+bees_avg_temp <- bees_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Tave"), 
+    names_to = "temp_month",
+    values_to = "avg_temp_value") %>% 
+  select(ecoRegion, temp_month, avg_temp_value)
+
+bees_avg_PPT <- bees_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_PPT"), 
+    names_to = "PPT_month",
+    values_to = "avg_PPT_value") %>% 
+  select(ecoRegion, PPT_month, avg_PPT_value)
+
+bees_avg_DD5 <- bees_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_DD5"), 
+    names_to = "DD5_month",
+    values_to = "avg_DD5_value") %>% 
+  select(ecoRegion, DD5_month, avg_DD5_value)
+
+bees_avg_RH <- bees_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_RH"), 
+    names_to = "RH_month",
+    values_to = "avg_RH_value") %>% 
+  select(ecoRegion, RH_month, avg_RH_value)
+
+bees_avg_CMI <- bees_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_CMI"), 
+    names_to = "CMI_month",
+    values_to = "avg_CMI_value") %>% 
+  select(ecoRegion, CMI_month, avg_CMI_value)
+
+bees_avg_Eref <- bees_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Eref"), 
+    names_to = "Eref_month",
+    values_to = "avg_Eref_value") %>% 
+  select(ecoRegion, Eref_month, avg_Eref_value)
+
+bees_avg_Tmax <- bees_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Tmax"), 
+    names_to = "Tmax_month",
+    values_to = "avg_Tmax_value") %>% 
+  select(ecoRegion, Tmax_month, avg_Tmax_value)
+
+bees_avg_Tmin <- bees_avgs_less %>% 
+  pivot_longer(
+    cols = contains("avg_Tmin"), 
+    names_to = "Tmin_month",
+    values_to = "avg_Tmin_value") %>% 
+  select(ecoRegion, Tmin_month, avg_Tmin_value)
+
+bees_temp_percipitation <- cbind(bees_avg_PPT, bees_avg_temp, bees_avg_Tmax, bees_avg_Tmin)
+
+month_v <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Winter", "Spring", "Summer", "Fall")
+
+bees_df <- bees_temp_percipitation %>% 
+  select(ecoRegion...1, avg_PPT_value, avg_temp_value,avg_Tmax_value,avg_Tmin_value) %>% 
+  add_column(months = rep(month_v, 12)) %>% 
+  rename(ecoRegion = ecoRegion...1)
+
+
+
+```
+
+Visualize the ClimoGraphs
+```{r}
+bees_df_monthly <- bees_df %>% 
+  filter(!(months %in% c("Winter", "Spring", "Summer", "Fall")))
+
+bees_df_monthly$months <- as.character(bees_df_monthly$months)
+
+bees_df_monthly$months <- factor(bees_df_monthly$months, levels = unique(bees_df_monthly$months))
+
+ylim.prim <- c(min(bees_df_monthly$avg_PPT_value), max(bees_df_monthly$avg_PPT_value))   # in this example, precipitation
+ylim.sec <- c(min(bees_df_monthly$avg_Tmin_value), max(bees_df_monthly$avg_Tmax_value))    # in this example, temperature
+
+b <- diff(ylim.prim)/diff(ylim.sec)
+a <- ylim.prim[1] - b*ylim.sec[1] # there was a bug here
+
+ggplot(bees_df_monthly, aes(months, avg_PPT_value)) +
+  geom_col() +
+  geom_line(aes(y = a + avg_temp_value*b), color = "red") +
+  scale_y_continuous("Precipitation", sec.axis = sec_axis(~ (. - a)/b, name = "Temperature")) +
+  facet_wrap(~ecoRegion) +
+  scale_x_discrete("Month", breaks = 1:12) 
+
+
+bees_df_monthly %>% 
+  ggplot(aes(x=months, group=1)) + 
+  geom_bar(aes(y=avg_PPT_value, col = "Percipitation  [mm]"), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y = a + avg_temp_value*b, col="Avg. Temp [C]"), size = 1) + 
+  geom_line(aes(y = a + avg_Tmax_value*b, col = "Max. Avg. Temp [C]")) +
+  geom_line(aes(y = a + avg_Tmin_value*b, col = "Min. Avg.  Temp [C]")) +
+  geom_point(aes(y = a + avg_temp_value*b)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(.~ecoRegion) +
+  scale_color_manual(values=c("darkorange", "red" ,"blue", "black")) +
+  scale_y_continuous(sec.axis = sec_axis(~ (. - a)/b, name = "Percipitation [mm]")) +
+  labs(x="month", y="Temperature [C]")
+
+# Making it look a bit nicer 
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Coast_Range"] = "Coast Range"
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Central_Basin_and_Range"] = "Central Basin"
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Sierra_Nevadas"] = "Sierra Nevadas"
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Mojave_Basin_and_Range"] = "Mojave"
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Cali_Coastal_Sage_Chap_Oak_Woodlands"] = "Coastal Chaparral & Oak Woodlands"
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Central_Cali_Valley"] = "Central Valley"
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Klamath_Mountains"] = "Klamath Mountains"
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Southern_and_Baja_Cali_PineOak_Mounts"] = "Baja California"
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Northern_Basin_and_Range"] = "Northern Basin & Range"
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Sonoran_Desert"] = "Sonoran Desert"
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Eastern_Cascades_Slopes_and_Foothills"] = "Eastern Cascades"
+bees_df_monthly$ecoRegion[bees_df_monthly$ecoRegion == "Coast_Range"] = "Coast Range"
+
+
+### This is a close to final product ###
+bees_df_monthly %>% 
+  ggplot(aes(x=months, group=1)) + 
+  geom_bar(aes(y=avg_PPT_value, col = "Percipitation  [mm]"), stat = "identity", fill = "lightblue") +
+  geom_line(aes(y = a + avg_temp_value*b, col="Avg. Temp [C]"), size = 1) + 
+  geom_line(aes(y = a + avg_Tmax_value*b, col = "Max. Avg. Temp [C]")) +
+  geom_line(aes(y = a + avg_Tmin_value*b, col = "Min. Avg.  Temp [C]")) +
+  geom_point(aes(y = a + avg_temp_value*b)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(.~ecoRegion) +
+  scale_color_manual(values=c("darkorange", "red" ,"blue", "black")) +
+  scale_y_continuous(sec.axis = sec_axis(~ (. - a)/b, name = "Percipitation [mm]")) +
+  labs(x="month", y="Temperature [C]", col="Climatic Variables") 
+
+ggsave("Ecobees Climate.pdf", width = 20, height = 10)
+
+bees_df_monthly %>% 
+  group_by(ecoRegion) %>% 
+  summarise(yearly_percipitation = sum(avg_PPT_value)*0.0393701) #(Close) to what has been recently published, but lets talk with Katja and Pam about this.
+# Source: https://oehha.ca.gov/media/epic/downloads/cc_precipitation2018.pdf
+
+```
+### Non-Stats Comparisons just to give ourselves an idea of how different the data is ###
+
+```{r}
+# To deal with the weird constraints on negatives lets convert to Kelvin
+
+kelvin_converter <- function(x){
+  K = x + 273.15 # Convert value x to Kelvin
+  return(K)
+}
+
+celsius_converter <- function(x){
+  C = x - 273.15
+  return(C)
+}
+
+
+df_comparison <- bees_df_monthly %>% 
+  summarize(PPT_diff = regions_df_monthly$avg_PPT_value - bees_df_monthly$avg_PPT_value,
+            
+            avg_temp_diff = celsius_converter(kelvin_converter((regions_df_monthly$avg_temp_value) - (bees_df_monthly$avg_temp_value))),
+            
+            avg_MAX_temp_diff = celsius_converter(kelvin_converter((regions_df_monthly$avg_Tmax_value) - (bees_df_monthly$avg_Tmax_value))),
+  
+            avg_MIN_temp_diff = celsius_converter(kelvin_converter((regions_df_monthly$avg_Tmin_value) - (bees_df_monthly$avg_Tmin_value)))) %>% 
+            
+            add_column(months = bees_df_monthly$months) %>% 
+            add_column(ecoRegion = bees_df_monthly$ecoRegion)
+
+
+
+ggplot(df_comparison, aes(x = months, y = PPT_diff)) +
+  geom_bar(stat = "identity",  fill = "lightblue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(~ecoRegion) + 
+  labs(title = "Difference Between EcoRegion and Bee Pull Percipitation") +
+  xlab("Month") +
+  ylab("Percipitation [mm]") +
+  theme(plot.title = element_text(hjust = 0.5))
+ # scale_y_continuous(name = "Percipitation [mm]", limits = c(-50,400))
+ggsave("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Figures/Difference-in-Percipitation.pdf", width = 20, height = 10)
+
+ggplot(df_comparison, aes(x = months, y = avg_temp_diff)) +
+  geom_bar(stat = "identity",  fill = "lightblue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(~ecoRegion) +
+  labs(title = "Difference Between EcoRegion and Bee Pull Avg Temperature") +
+  xlab("Month") +
+  ylab("Temperature [C]") +
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Figures/Difference-in-Avg-Temp.pdf", width = 20, height = 10)
+
+ggplot(df_comparison, aes(x = months, y = avg_MIN_temp_diff)) +
+  geom_bar(stat = "identity",  fill = "lightblue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(~ecoRegion) +
+  labs(title = "Difference Between EcoRegion and Bee Pull Avg Minimum Temperature") +
+  xlab("Month") +
+  ylab("Temperature [C]") +
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Figures/Difference-in-Min-Temp.pdf", width = 20, height = 10)
+ggplot(df_comparison, aes(x = months, y = avg_MAX_temp_diff)) +
+  geom_bar(stat = "identity",  fill = "lightblue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  facet_wrap(~ecoRegion) +
+  labs(title = "Difference Between EcoRegion and Bee Pull Avg Maximum Temperature") +
+  xlab("Month") +
+  ylab("Temperature [C]") +
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Figures/Difference-in-Max-Temp.pdf", width = 20, height = 10)
+```
+
+
+
+
+
+
+
+
+### Lets do Some Statistics to see if there is a sigificant difference between these two climate projections using gridded vs. bee occurrence data. 
+
+
+We can use either t-test or Welch's test to check whether a particular EcoRegion differs sigificantly in climate for each climate projection
+
+t-test: Assumptions: Normality, Variance is equal
+Welch's: Assumptions: Normality, Unequal variance -> Lose Power, however I have read this test is more robust when considering different sampling sizes. Considering our sample sizes are considerably different, this is probably the best way to proceed assuming that we can satisfy the normality assumption.
+
+Lets first look a 'stable' ecoregion of interest like the Mojave 
+```{r}
+final_thinned_bees %>%
+  group_by(ecoRegion) %>% 
+  count()
+  
+
+regions_climate_drop  %>% 
+  group_by(ecoRegion) %>% 
+  count()
+
+
+### Well the sample sizes are quite different as we would expect
+
+Mojave_bees <-final_thinned_bees %>% 
+  filter(ecoRegion == "Mojave_Basin_and_Range") # 780 obs
+
+Mojave_grid <- regions_climate_drop %>% 
+  filter(ecoRegion == "Mojave_Basin_and_Range") # 8064 ovbs
+
+# Bees have approximately 1/10 of the coverage.
+
+ggplot(Mojave_bees, aes(x=MAT)) +
+  geom_histogram() # Not too non-normal in my opinion, but there is some left skew so maybe a log transformation will assist
+
+ggplot(Mojave_bees, aes(sample = MAT)) +
+  stat_qq() +
+  stat_qq_line() # qqPlot looks pretty bad
+
+shapiro.test(Mojave_bees$MAT) # Shapiro Says the data is not normal
+
+
+
+# Are the residuals Normal?
+fit_t <- lm(MAT ~ ecoRegion ,data=regions_climate_drop) #run a linear model. lm(y~x) fits the equation y=mx+b
+res_t=fit_t$residuals #retrieve the residuals from the model
+
+qqPlot(res_t) # Ouch, pretty bad. 
+
+ggplot(regions_climate_drop, aes(x=log(MAT))) +
+  geom_histogram() 
+
+```
+### Comparison of climateNA averages to that of the EPA's publishment on ecoregion descriptions:https://gaftp.epa.gov/EPADataCommons/ORD/Ecoregions/pubs/NA_TerrestrialEcoregionsLevel3_Final-2june11_CEC.pdf
+
+# Create a df that holds the EPA's descriptions averages
+```{r}
+ecoregion_naming <- c("Chaparral", "Cascades", "Central Basin", "Central Valley", "Coast Range", "Eastern Cascades", "Klamath Mountains", "Mojave", "Northern Basin", "Sierra Nevadas", "Sonoran Desert", "Baja")
+
+mean_percipitation_mm <- c(548, 1824, 277, 125, 2149, 649, 1438, 167, 351, 1070, 206, 525 )
+lowest_mean_temp <- c(14, -1, 2, 15, 7, 2, 5, 5, 5, -3, 19, 6)
+highest_mean_temp <- c(18, 11, 14, 19, 14, 11, 14, 24, 9, 17, 25, 17)
+
+ecoregions_desc <- data.frame(ecoregion_naming, mean_percipitation_mm, lowest_mean_temp, highest_mean_temp)
+ecoregions_desc2 <- ecoregions_desc %>% 
+  rename(ecoregion = ecoregion_naming) %>% 
+  relocate(highest_mean_temp, .after = ecoregion) %>% 
+  relocate(lowest_mean_temp, .after = highest_mean_temp) %>% 
+  relocate(mean_percipitation_mm, .after = lowest_mean_temp)
+```
+
+# We need yearly averages from our original region dataset
+```{r}
+climateNA_regions_summary <- regions_climate_drop %>% 
+  group_by(ecoRegion) %>% 
+  summarise(highest_mean_temp = mean(MWMT), 
+            lowest_mean_temp = mean(MCMT),
+            mean_percipitation_mm = sum(mean(PPT01), mean(PPT02), mean(PPT03),mean(PPT04), mean(PPT05), mean(PPT06), mean(PPT07), mean(PPT08), mean(PPT09), mean(PPT10), mean(PPT11), mean(PPT12)))
+
+
+climateNA_regions_summary2 <- climateNA_regions_summary %>% 
+  select(-ecoRegion) %>% 
+  add_column(ecoregion = c("Chaparral", "Cascades", "Central Basin", "Central Valley", "Coast Range", "Eastern Cascades", "Klamath Mountains", "Mojave", "Northern Basin", "Sierra Nevadas", "Sonoran Desert", "Baja")) %>% 
+  relocate(ecoregion, .before = highest_mean_temp) %>% 
+  mutate(across(2:3, round, 0)) %>% 
+  mutate(across(mean_percipitation_mm, round, 0))
+
+```
+# Making a table
+```{r}
+climateNA_table <- ggtexttable(climateNA_regions_summary2, rows = NULL, theme = ttheme("classic", base_size = 10))
+
+EPA_averages_table <- ggtexttable(ecoregions_desc2, rows = NULL, theme = ttheme("classic", base_size = 10))
+```
+
+# Compare the two in mean_percipitation_mm, lowest_mean_temp, and highest_mean_temp
+```{r}
+EPA_ClimateNA_comp <- climateNA_regions_summary %>% 
+  summarize(PPT_diff = climateNA_regions_summary$mean_percipitation_mm - ecoregions_desc$mean_percipitation_mm,
+            
+      
+            
+            avg_MAX_temp_diff = climateNA_regions_summary$highest_mean_temp - ecoregions_desc$highest_mean_temp,
+  
+            avg_MIN_temp_diff = climateNA_regions_summary$lowest_mean_temp - ecoregions_desc$lowest_mean_temp) %>% 
+            
+   
+            add_column(ecoRegion = ecoregions_desc$ecoregion_naming) %>% 
+  relocate(ecoRegion, .before = PPT_diff)
+
+
+comp_table <- ggtexttable(EPA_ClimateNA_comp, rows = NULL, theme = ttheme("classic"))
+  
+```
+
+```{r}
+PPT_difference <- ggplot(EPA_ClimateNA_comp, aes(x = ecoRegion, y = PPT_diff)) +
+  geom_bar(stat = "identity",  fill = "lightblue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  labs(title = "Difference Between EcoRegion and EPA data Avg Percipitation (mm)") +
+  xlab("Ecoregion") +
+  ylab("Percipitation [mm]") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+#ggsave("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Figures/Difference-in-Max-Temp.pdf", width = 20, height = 10)
+```
+
+```{r}
+MAX_Temp_difference <-ggplot(EPA_ClimateNA_comp, aes(x = ecoRegion, y = avg_MAX_temp_diff)) +
+  geom_bar(stat = "identity",  fill = "pink", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  labs(title = "Difference Between EcoRegion and EPA data Avg Maximum Temperature (C)") +
+  xlab("Ecoregion") +
+  ylab("Temperature [C]") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+Min_Temp_difference <- ggplot(EPA_ClimateNA_comp, aes(x = ecoRegion, y = avg_MIN_temp_diff)) +
+  geom_bar(stat = "identity",  fill = "blue", color = "black") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, vjust=0.5)) +
+  labs(title = "Difference Between EcoRegion and EPA data Minimum Temperature (C)") +
+  xlab("Ecoregion") +
+  ylab("Temperature [C]") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+```{r}
+
+ggarrange(PPT_difference, 
+             ggarrange(climateNA_table, EPA_averages_table,ncol = 2, labels = c("climateNA","EPA")), 
+             nrow = 2
+)
+ggarrange(MAX_Temp_difference, 
+             ggarrange(climateNA_table, EPA_averages_table,ncol = 2, labels = c("climateNA","EPA")), 
+             nrow = 2
+)
+ggarrange(Min_Temp_difference, 
+             ggarrange(climateNA_table, EPA_averages_table,ncol = 2, labels = c("climateNA","EPA")), 
+             nrow = 2
+)
+
+```
+```{r}
+# Outlier analysis 
+central_basin <- regions_climate_drop %>% 
+  filter(ecoRegion == "Central Valley")
+
+
+plot(central_basin$MWMT, 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+And do the same for the Plants ##### NA for now, the size of the occurrence records with the data is incredibly difficult since spThin requires datasets of size 10,000. I tried subsetting out the 79,000 record dataset and it works..but its a bit brutal. TO DO: Once we have a comprised list of known plant and bee interaction matches, lets filter down that dataset. 
+```{r}
+# Read in the plant data 
+plant_locations <- read.csv("/media/jt-miller/T7/CCBER/ClimateNAPulls/cali-extended-regions-plant-pull2_ALL_Normal_1961_1990MSY.csv")
+
+plant_locations <- plant_locations %>% 
+  distinct(Longitude, Latitude, .keep_all = TRUE)
+```
+
+Repeat the steps for splitting the df and thinning 
+```{r}
+df_names <- c(unique(plant_locations$ecoRegion))
+
+ecoRegion_df_splitter(plant_locations, df_names) # See Global-Functions Script
+
+
+### Necessary Regions to split further 
+# Chap/29
+# Central Basin / 8
+# Central Valley / 3
+# Coast Range / 3
+# Klamath / 4
+# Mojave / 7
+# Northern Basin / 3 
+# Sierra Nevadas / 7
+# Sonoran / 5
+# Baja /6
+
+# Splitting the dfs 
+df <- data.frame(x = 1:12, y = 12:1, identity = rep(c("A","B", "C", "D", "E", "F")))
+# A function from: https://stackoverflow.com/questions/41598538/split-dataframe-into-equal-parts
+splitter<-function(x,groups=10, EcoRegion){
+  dd<-as.data.frame(x)
+  dd$split<-sample(groups,size=nrow(dd),replace=T)
+  for(i in 1:groups){
+    ddd<-dd[dd$split==i,]
+    assign(paste0(EcoRegion,i),ddd,envir=globalenv())
+  }
+}
+splitter(df,6)
+
+# Create the names 
+Chaparral <- "Chaparral_splits"
+CentralBasin <- "CentralBasin_splits"
+CentralValley <- "CentralValley_splits"
+CoastRange <- "CoastRange_splits"
+Klamath <- "Klamath_splits"
+Mojave <- "Mojave_splits"
+NorthernBasin <- "NorthernBasin_splits"
+SierraNevadas <- "SierraNevadas_splits"
+Sonoran <- "Sonoran_splits"
+Baja <- "Baja_splits"
+
+splitter(Cali_Coastal_Sage_Chap_Oak_Woodlands, 29, Chaparral)
+splitter(Central_Basin_and_Range, 8, CentralBasin)
+splitter(Central_Cali_Valley, 3, CentralValley)
+splitter(Coast_Range, 3, CoastRange)
+splitter(Klamath_Mountains, 4, Klamath)
+splitter(Mojave_Basin_and_Range, 7, Mojave)
+splitter(Northern_Basin_and_Range, 3, NorthernBasin)
+splitter(Sierra_Nevadas, 7, SierraNevadas)
+splitter(Sonoran_Desert, 5, Sonoran)
+splitter(Southern_and_Baja_Cali_PineOak_Mounts, 6, Baja)
+
+
+################################################################################
+
+#### Trying subsets ###
+
+split_list_singularEco <- function(list, df_names){
+  for(i in 1:length(list)){
+    
+    assign(paste0(df_names, i), list[[i]], envir = .GlobalEnv)
+    
+  }
+}
+
+Pattern_chap <- grep("Chaparral_splits", names(.GlobalEnv), value = TRUE) # Grab everything in our global enviroment with Chaparral
+ChapList <- do.call("list", mget(Pattern_chap))
+
+Chap_dfList <- lapply(ChapList, function(x){
+  y <- x %>% 
+  select(Latitude, Longitude) %>% 
+  relocate(Longitude, .before = Latitude)
+  })
+
+df_names <- "Chap_dfs"
+
+split_list_singularEco(Chap_dfList, df_names)
+
+# Reformat into a list yayy
+Pattern_chapdfs <- grep("Chap_dfs", names(.GlobalEnv), value = TRUE)
+ChapdfsList <- do.call("list", mget(Pattern_chapdfs))
+
+split_list <- function(list){
+  for(i in 1:length(list)){
+    
+    assign(paste0("dfList_forThin"[i]), list[[i]], envir = .GlobalEnv)
+    
+  }
+}
+
+
+for(i in 1:length(ChapdfsList)){
+  #dfList_forThin <- list(ChapdfsList[[i]])
+  #assign(dfList_forThin, paste0(dfList_forThin,i), envir=globalenv())
+  #assign(dfList_forThin, paste0(df_names[i]), list[[i]], envir = .GlobalEnv)
+  assign(paste0("dfList_forThinning"[i], list[[i]], envir = .GlobalEnv))
+}
+
+split_list(ChapdfsList)
+
+dfList_forThin1 <- list(Chap_dfs1)
+dfList_forThin2 <- list(Chap_dfs2)
+dfList_forThin3 <- list(Chap_dfs3)
+
+
+thinned_list1 <- lapply(dfList_forThin1, function(x){
+  thin.algorithm(x, 
+                 thin.par = 4,
+                 reps = 1)
+  }
+)
+
+thinned_list2 <- lapply(dfList_forThin2, function(x){
+  thin.algorithm(x, 
+                 thin.par = 4,
+                 reps = 1)
+  }
+)
+
+thinned_list3 <- lapply(dfList_forThin3, function(x){
+  thin.algorithm(x, 
+                 thin.par = 4,
+                 reps = 1)
+  }
+)
+
+
+
+split_list_dfer(thinned_list, df_names)
+
+```
+
+# Using spThin to remove occurrences within 4km of eachother in order to reduce sampling bias 
+```{r}
+thinned_list <- lapply(dfList_forThin, function(x){
+  thin.algorithm(x, 
+                 thin.par = 4,
+                 reps = 1)
+  }
+)
+
+
+
+split_list_dfer(thinned_list, df_names)
+
+```
+Bring the dataset back together 
+```{r}
+# First, bring the ecoregions thinned occurrences back
+thinned_regions <- rbind(Cali_Coastal_Sage_Chap_Oak_Woodlands, Cascades, Central_Basin_and_Range, Central_Cali_Valley, Coast_Range, Eastern_Cascades_Slopes_and_Foothills, Klamath_Mountains, Mojave_Basin_and_Range, Northern_Basin_and_Range, Sierra_Nevadas, Sonoran_Desert, Southern_and_Baja_Cali_PineOak_Mounts)
+
+# Use semi_join on the parent df to filter down to a spatially thinned dataset
+thinned_plant_occurrences <- semi_join(plant_locations, thinned_regions, by = c("Longitude", "Latitude"))
+```
+
+Visualize our newly thinned occurrence map
+```{r}
+thinned_plant_occurrences_w_crs <- st_as_sf(thinned_plant_occurrences, coords = c('Longitude', 'Latitude'), crs = 4326, remove = FALSE)
+plant_locations_w_crs <- st_as_sf(plant_locations, coords = c('Longitude', 'Latitude'), crs = 4326, remove = FALSE)
+plot(st_geometry(thinned_plant_occurrences_w_crs))
+
+
+plot(st_geometry(plant_locations_w_crs))
+
+
+# Measure the distances to be sure we hit the right distance for each point
+measurements <- thinned_plant_occurrences_w_crs %>%
+  mutate(
+    lead = geometry[row_number() + 1],
+    dist = st_distance(geometry, lead, by_element = T)) %>% 
+  mutate(km_dist = as.integer(dist)) %>% 
+  mutate(km_dist = km_dist/1000) 
+
+measurements_wout_NAs <- measurements %>% 
+  filter(!is.na(km_dist))
+
+min(measurements_wout_NAs$km_dist) # Success! 
+
+# Semi_join to get rid of that one problematic location
+final_thinned_plants <- semi_join(plant_locations, measurements_wout_NAs, by = c("Longitude", "Latitude"))
+```

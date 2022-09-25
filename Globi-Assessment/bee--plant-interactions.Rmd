@@ -1,0 +1,519 @@
+---
+title: "Plants-and-Bees"
+author: "JT Miller"
+date: '2022-07-06'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Necessary packages
+```{r}
+library(tidyverse)
+library(sf)
+```
+### Load in the Globi-Interaction database 
+```{r}
+globi_bee_data <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/global-bee-interaction-data/all_bee_data.csv", quote = "") # Disable quoting might be necessary for this dataset due to EOF warning. Solution found here: https://stackoverflow.com/questions/17414776/read-csv-warning-eof-within-quoted-string-prevents-complete-reading-of-file
+```
+
+### Data Exploration
+Lets first figure out what we're dealing with
+```{r}
+names(globi_bee_data)
+```
+Appears that either "sourceBodyPartName" or "targetBodyPartName" will be important to identify whether it was actually a flower visitation interaction as well as "interactionTypeName". There is also "decimalLatitude" and "decimalLongitude" + "localityId/localityName" so we should be able to map it down to only include interactions that occur in California.
+
+First, lets compare the body part fields
+```{r}
+globi_bee_data %>% 
+  select(sourceBodyPartName, targetBodyPartName) %>% # sourceBodyPartName appears to be unhelpful, 12 unique values
+  count(sourceBodyPartName, sort = TRUE)
+
+globi_bee_data %>% 
+  select(sourceBodyPartName, targetBodyPartName) %>% 
+  count(targetBodyPartName, sort = TRUE)
+
+# It appears that 547,319 interactions are lacking a specified interaction
+
+# For a plant-pollinator interaction, we want Flowers, flower, el polen, la flor, pollen, Pollen, stigma, sexual column(?), reproductive parts of flowers, pollen and nectar in nest cell(?)
+
+# Check out the weirder ones to see if we want to include them
+globi_bee_data %>% 
+  select(targetBodyPartName, targetTaxonName, interactionTypeName) %>% 
+  filter(targetBodyPartName == "sexual column") %>% 
+  count(targetTaxonName)   # Here we're using targetTaxonName since it appears the other option 'species' isn't filled
+  
+
+# Alfalfa!
+globi_bee_data %>% 
+  select(targetBodyPartName, targetTaxonName, interactionTypeName) %>% 
+  filter(targetBodyPartName == "sexual column") %>% 
+  count(interactionTypeName)
+
+# Well it seems we should probably keep this. sexual column
+
+####### pollen and nectar in nest cell ########
+globi_bee_data %>% 
+  select(targetBodyPartName, targetTaxonName, interactionTypeName) %>% 
+  filter(targetBodyPartName == "pollen and nectar in nest cell") %>% 
+  count(targetTaxonName)   # Here we're using targetTaxonName since it appears the other option 'species' isn't filled
+  
+
+# Osmia, looks like parasitic bees. 
+globi_bee_data %>% 
+  select(targetBodyPartName, targetTaxonName, interactionTypeName) %>% 
+  filter(targetBodyPartName == "pollen and nectar in nest cell") %>% 
+  count(interactionTypeName)
+
+# So lets disclude pollen and nectar in nest cell from the fields. 
+
+
+### Lets also check whether interactionTypeName is filled out more then targetBodyPartName
+globi_bee_data %>% 
+  select(interactionTypeName, targetBodyPartName) %>% 
+  count(interactionTypeName, sort = TRUE)
+
+# Oh very nice theres a pollinates field. 11,738 cases which is much higher then our previous 3,469
+
+```
+So it appears that the targetBodyPartName is left blank more often then the interaction type name field. pollinates is probably fine to use at least for now, but its worth considering expanding our query to visitsFlowersOf as well as making our query more robust by only using listed body part interactions. 
+
+
+Looking at any documented interaction (?)
+```{r}
+globi_pollinators <- globi_bee_data %>% 
+  filter(interactionTypeName == "pollinates")
+
+globi_interacters <- globi_bee_data %>% 
+  filter(interactionTypeName == "interactsWith")
+
+globi_summs <- globi_bee_data %>% 
+  filter(interactionTypeName %in% c("interactsWith", "pollinates", "visitsFlowersOf", "visits"))
+```
+
+
+Quantify 
+```{r}
+globi_summs %>% 
+  distinct(targetTaxonName, keep.all = TRUE)
+
+### Get rid of: "http://treatment.plazi.org/id/FAFE3A862699660D2A3D0E4616DC7097" ~ "Rudbeckia hirta L." , "http://treatment.plazi.org/id/ECF8E70E3199AF20702540252CFD6CF7" ~ "Echinacea purpurea (L.) Moench" , "http://treatment.plazi.org/id/72E9E93B106A097CB534CCDA181D5D7B" ~ "Melilotus officinalis (L.) Lam." , "http://treatment.plazi.org/id/9D7FBA9EE2D36062539AD89593837A77" ~ "Tamarix gallica L.", "http://treatment.plazi.org/id/7F6258763A233EA92BCB3890F7F3EA16" ~ "Erigeron philadelphicus L." , "http://treatment.plazi.org/id/8CDD006DAF104F0C0A07673435A3F5B2" ~ "Rhus glabra", "http://treatment.plazi.org/id/FD4C81A5CD2276CF046E0FA226D20EE3" ~ "Anthemis cotula L.", "http://treatment.plazi.org/id/21E30184F5EDFD74796F72008C99C081" ~ "Lyonia ligustrina (L.)" , "http://treatment.plazi.org/id/AED027CEC9A43EE805DC0C67AAB0F39C" ~ "Marrubium vulgare L.", "http://treatment.plazi.org/id/E76E6BBABF23BD7A32BDDED82B23CFFB" ~ "Prunus virginiana L." , "http://treatment.plazi.org/id/D7B2F2192735F23359A1A47FAD416FC3" ~ "Pastinaca sativa" , "http://treatment.plazi.org/id/ACF6635B9387B330647932B49621F41A" ~ "Conium maculatum" , "http://treatment.plazi.org/id/0C91402CE2AB4082A3C544A305B93F74" ~ "Descurainia sophia (L.) Webb ex Prantl"  , "http://treatment.plazi.org/id/C0B1F64264CCBA7EB280822DFC007CFC" ~ "Lepidium campestre (L.) R. Br." , "http://treatment.plazi.org/id/F7CB0CF35AE6FD6399A9F1727C409819" ~ "Prunus laurocerasus" , "http://treatment.plazi.org/id/57B093EC75B57866C014F2BC52E9DD47" ~ "Rosmarinus officinalis L.", "http://treatment.plazi.org/id/50341975FBE28C6A7D3C04BAB986D2AD" ~ "Potentilla fruticosa L." , "http://treatment.plazi.org/id/03DD87D8FF9CD26EFDD8A2E97360FB23" ~ "Thermopsis Külköylüoğlu et al., 2003" , *Flagged "http://treatment.plazi.org/id/FB7A09EEF8EC3B9F3529A4A1CA3EC7F1" ~ "Diospyros virginiana L." , "http://treatment.plazi.org/id/3FCED158C6AF57D901AA251AC35053F9" ~ "Rubus idaeus" , "http://treatment.plazi.org/id/8AA60C21952073C59711CCBF8CC76C32" ~ "Argemone mexicana" , "http://treatment.plazi.org/id/FDD9CDA171A22A23DEC1A8E635A31A48" ~ "Acer rubrum L." , "http://treatment.plazi.org/id/766C5EA6ACF19267FA5F4DE80C088A9E" ~ "Malus sylvestris (L.) Mill.", "http://treatment.plazi.org/id/168F8F4F7DDDFA40603C4DCF3A0AF12C" ~ "Stellaria media (L.) Vill." , "http://treatment.plazi.org/id/121066DB1BC342D43717D63C76C8297C" ~ "Prunus persica (L.) Batsch" , "http://treatment.plazi.org/id/F92C45F9F19DC16132492FB93EBBE33C" ~ "Brassica oleracea L. var. capitata L.", "http://treatment.plazi.org/id/2FE1E989998E3B7B055038A2D94ECFDA" ~ "Lupinus", "http://treatment.plazi.org/id/9966E2297D64C1029E81555AD33F02CD" ~ "Ceanothus americanus", "http://treatment.plazi.org/id/9C3EA076049CF79FE28D1D5ADD93DC86" ~ "Amorpha fruticosa L.", "http://treatment.plazi.org/id/B81D3033208403CC81D7EB79523E4CEC" ~ "Ribes rubrum" , "http://treatment.plazi.org/id/2FB1DF2D26F4DB37B8928BEF4A21B455" ~ "Rhododendron maximum L.", "http://treatment.plazi.org/id/8CDDB8FE5199BEA9FC8C197936C1A53C" ~ "Kalmia angustifolia L.", "http://treatment.plazi.org/id/BBFD6E1EEA33BDD2606EB70FB90DE21E" ~ "Cercis canadensis" , "http://treatment.plazi.org/id/F2F13FBC4371352E23BF4B93A3E32D3A" ~ "Megaselia Rondani, 1856" , "http://treatment.plazi.org/id/C121FA83BA73C80659A41D6040C22ECF" ~ "Viburnum prunifolium L.", "http://treatment.plazi.org/id/B87F34AA383C06E0CF4F70EC89CBEF72" ~ "Zizia aurea (L.) W.D.J. Koch", "http://treatment.plazi.org/id/45D58BD599BC71C958AF5AE446A26E52" ~ "Barbarea vulgaris W.T. Aiton" ,  "http://treatment.plazi.org/id/7F917C528F9F87A9DE65D7F2564AC0D3" ~ "Raphanus sativus L."
+
+globi_summs %>% 
+  distinct(sourceTaxonName, keep.all = TRUE)
+# "http://treatment.plazi.org/id/EFA2D9EE87F05E8EB207EC8EF0C3ACCB" ~ "Andrena 001 Fabricius" 
+
+
+# Get rid of BOLD:ADC1375 and BOLD:AAJ2193
+
+
+# Apply the changes...
+gsc <- globi_summs[!grepl("http|\"Abundance\"\"\"|null|N/A N/A", globi_summs$targetTaxonName),]
+gsc2 <- gsc[!grepl("BOLD:ADC1375|BOLD:AAJ2193", gsc$sourceTaxonName),]
+
+
+gsc2 %>% 
+  distinct(targetTaxonName, keep.all = TRUE)
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/FAFE3A862699660D2A3D0E4616DC7097"] <- "Rudbeckia hirta L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/ECF8E70E3199AF20702540252CFD6CF7"] <- "Echinacea purpurea (L.) Moench"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/72E9E93B106A097CB534CCDA181D5D7B"] <- "Melilotus officinalis (L.) Lam."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/9D7FBA9EE2D36062539AD89593837A77"] <- "Tamarix gallica L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/7F6258763A233EA92BCB3890F7F3EA16"] <- "Erigeron philadelphicus L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/8CDD006DAF104F0C0A07673435A3F5B2"] <- "Rhus glabra"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/FD4C81A5CD2276CF046E0FA226D20EE3"] <- "Anthemis cotula L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/21E30184F5EDFD74796F72008C99C081"] <- "Lyonia ligustrina (L.)"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/AED027CEC9A43EE805DC0C67AAB0F39C"] <- "Marrubium vulgare L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/E76E6BBABF23BD7A32BDDED82B23CFFB"] <- "Prunus virginiana L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/D7B2F2192735F23359A1A47FAD416FC3"] <- "Pastinaca sativa"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/ACF6635B9387B330647932B49621F41A"] <- "Conium maculatum"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/0C91402CE2AB4082A3C544A305B93F74"] <- "Descurainia sophia (L.) Webb ex Prantl"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/C0B1F64264CCBA7EB280822DFC007CFC"] <- "Lepidium campestre (L.) R. Br."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/F7CB0CF35AE6FD6399A9F1727C409819"] <- "Prunus laurocerasus"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/57B093EC75B57866C014F2BC52E9DD47"] <- "Rosmarinus officinalis L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/03DD87D8FF9CD26EFDD8A2E97360FB23"] <- "Thermopsis Külköylüoğlu et al., 2003"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/FB7A09EEF8EC3B9F3529A4A1CA3EC7F1"] <- "Diospyros virginiana L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/3FCED158C6AF57D901AA251AC35053F9"] <- "Rubus idaeus"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/8AA60C21952073C59711CCBF8CC76C32"] <- "Argemone mexicana"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/FDD9CDA171A22A23DEC1A8E635A31A48"] <- "Acer rubrum L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/766C5EA6ACF19267FA5F4DE80C088A9E"] <- "Malus sylvestris (L.) Mill."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/168F8F4F7DDDFA40603C4DCF3A0AF12C"] <- "Stellaria media (L.) Vill."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/121066DB1BC342D43717D63C76C8297C"] <- "Prunus persica (L.) Batsch"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/F92C45F9F19DC16132492FB93EBBE33C"] <- "Brassica oleracea L. var. capitata L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/2FE1E989998E3B7B055038A2D94ECFDA"] <- "Lupinus"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/9966E2297D64C1029E81555AD33F02CD"] <- "Ceanothus americanus"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/9C3EA076049CF79FE28D1D5ADD93DC86"] <- "Amorpha fruticosa L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/B81D3033208403CC81D7EB79523E4CEC"] <- "Ribes rubrum"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/2FB1DF2D26F4DB37B8928BEF4A21B455"] <- "Rhododendron maximum L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/8CDDB8FE5199BEA9FC8C197936C1A53C"] <- "Kalmia angustifolia L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/BBFD6E1EEA33BDD2606EB70FB90DE21E"] <- "Cercis canadensis"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/F2F13FBC4371352E23BF4B93A3E32D3A"] <- "Megaselia Rondani, 1856"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/C121FA83BA73C80659A41D6040C22ECF"] <- "Viburnum prunifolium L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/B87F34AA383C06E0CF4F70EC89CBEF72"] <- "Zizia aurea (L.) W.D.J. Koch"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/45D58BD599BC71C958AF5AE446A26E52"] <- "Barbarea vulgaris W.T. Aiton"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/7F917C528F9F87A9DE65D7F2564AC0D3"] <- "Megaselia Rondani, 1856"
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/F2F13FBC4371352E23BF4B93A3E32D3A"] <- "Raphanus sativus L."
+
+gsc2$targetTaxonName[gsc2$targetTaxonName == "http://treatment.plazi.org/id/50341975FBE28C6A7D3C04BAB986D2AD"] <- "Potentilla fruticosa L. "
+
+
+gsc2$sourceTaxonName[gsc2$sourceTaxonName == "http://treatment.plazi.org/id/EFA2D9EE87F05E8EB207EC8EF0C3ACCB"] <- "Andrena 001 Fabricius"
+
+
+
+
+
+
+
+
+
+gsc2 %>% 
+  distinct(targetTaxonName, keep.all = TRUE) # Confirmed that it works, lets apply this across all of the df
+
+gsc2 %>% 
+  distinct(sourceTaxonName, keep.all = TRUE) 
+  
+
+```
+
+
+Now we're at an issue, the interaction can go either way between sourceTaxonName <-> targetTaxonName as far as the bee and plant is concerned...
+  *Fixes: We can code up a logical output that detects Hymenoptera in the sourceTaxonName field and outputs if found TRUE and if not found returns FALSE, and then go from there by creating new columns with PollinatingBee and PollinatedPlant 
+  
+```{r}
+rm(globi_interacters, globi_pollinators, gpd, gpg, gph, gpl, gps, gsc, gsc3, interactions_bounded, interactions_w_coords, interactions_w_coords_w_crs, plant_fams, target_fam_df, weird_oddities, weird_oddities2, xy.list)
+gps <- gsc2
+gps %>%  
+  distinct(sourceTaxonOrderName) %>% 
+  select(sourceTaxonOrderName)
+### We Need to check the pathing for these examples. 
+gp_drop_bad_sources <- gps %>% 
+  filter(!(sourceTaxonOrderName %in% c("Lepidoptera", "Coleoptera", "Araneae", "Diptera", "Hemiptera", "Mantodea", "Odonata", "Passeriformes", "Squamata", "Mesostigmata", "Orthoptera", "Coraciiformes", "Astigmata", "Prostigmata", "Mecoptera", "Ascosphaerales", "Eurotiales", "Lactobacillales", "Tylenchida", "Testudines", "Carnivora", "Primates", "Microsporida",  "Saccharomycetales", "Sordariales", "Lecanorales", "Opiliones", "Pucciniales")))
+
+
+# Well thats odd, how did these guys make it into our dataset?
+
+gp_drop_bad_sources %>% 
+  select(sourceTaxonOrderName) %>% 
+  count(sourceTaxonOrderName, sort = TRUE)
+
+#gps %>% 
+  #select(sourceTaxonOrderName, targetTaxonOrderName) %>% 
+  #filter(targetTaxonOrderName == "Cheilostomatida")
+
+#good_sources <- c("Hymenoptera", "Malvales", "Asterales", "Caryophyllales")
+# Well small instances of them made it in...interesting. 
+
+#gps %>% 
+  #select(sourceTaxonOrderName, targetTaxonOrderName, interactionTypeName) %>% 
+  #filter(sourceTaxonOrderName == "Lepidoptera")
+
+### Well Regardless, we need to drop these ones
+
+#gpl <- gps %>% 
+  #filter(sourceTaxonOrderName %in% good_sources)
+
+#gpl %>% 
+  #select(sourceTaxonOrderName) %>% 
+  #count(sourceTaxonOrderName, sort = TRUE)
+
+### What are those connections of plants to? Lets hope its bees...
+
+#test_sources <- c("Malvales", "Asterales", "Caryophyllales")
+
+#gpl %>% 
+  #filter(sourceTaxonOrderName %in% test_sources) %>% 
+  #select(sourceTaxonOrderName, targetTaxonOrderName) # Good that checks out. 
+
+### And check the targetTaxonOrderName
+
+gp_drop_bad_sources %>% 
+  select(targetTaxonPhylumName) %>% 
+  count(targetTaxonPhylumName, sort = TRUE)
+
+### These are the oddities that we need to check, since we know sometimes the pathing gets messed up (homonyms)
+bad_targets <- c("Lepidoptera", "Coleoptera", "Dasyuromorphia", "Diptera", "Leptothecata", "Hemiptera", "Agaricales", "Aplousobranchia",  "Plagiorchiida", "Squamata", "Rodentia", "Chondrosida", "Littorinimorpha", "Cyrtolophosidida", "Leptothecata", "Lucinida", "Mantodea", "Orthoptera", "Aplousobranchia", "Capnodiales", "Cheilostomatida", "Decapoda", "Diplostraca", "Eunotiaceae", "Araneae", "Afrosoricida", "Neogastropoda", "Anomalodesmata", "Cydippida", "Diplogasterida", "Anthoathecata", "Strongylida", "Zoantharia", "Dendrochirotida", "Perciformes", "Passeriformes", "Baerida", "Cardiida", "Opiliones", "Nassellaria", "Cyrtolophosidida", "Siphonophorae", "Sabellida", "Littorinimorpha", "Carnivora", "Valvatida", "Gobiesociformes", "Unionida", "Megaloptera", "Amphipoda", "Ceramiales", "Chondrosida", "Nudibranchia", "Actiniaria"  ) 
+
+gph <- gp_drop_bad_sources %>% 
+  filter(!targetTaxonOrderName %in% bad_targets ) %>% 
+  filter(!targetTaxonOrderName == "") # Also the blank space. 
+
+gph %>% 
+  select(targetTaxonOrderName) %>% 
+  count(targetTaxonOrderName, sort = TRUE)
+
+### Lets also take a closer look at our "bad_targets" 
+
+weird_oddities <- gps %>% 
+  filter(targetTaxonOrderName %in% bad_targets) 
+
+weird_oddities2 <- weird_oddities %>% 
+  filter(targetTaxonOrderName == "Chondrosida")
+
+
+
+### Lets look at this from a phylum level to see if sorting is possible
+
+oddities <- gp_drop_bad_sources %>% 
+  filter(!(targetTaxonPhylumName == "Tracheophyta")) %>% 
+  filter(!(targetTaxonPhylumName == ""))
+
+oddities %>% 
+  select(targetTaxonName, sourceTaxonName) %>% 
+  distinct(targetTaxonName, .keep_all = TRUE)
+
+oddities %>% 
+  filter(targetTaxonName == "Bidens")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+For now lets looks at just pollination data. 
+```{r}
+globi_pollinators <- globi_bee_data %>% 
+  filter(interactionTypeName == "pollinates")
+
+globi_pollinators %>% 
+  distinct(targetTaxonName, keep.all = TRUE) # hmm 2,365 species, though this would require some cleaning considering there is some specified only to the genus level
+
+### One problem at a time, lets grep out any http string that shows up in the targetTaxonName 
+gpg <- globi_pollinators[!grepl("http", globi_pollinators$targetTaxonName),]
+
+# Check our new df 
+
+unique(gpg$targetTaxonName) # Well we don't want null nor do we want "\ "Abundance\"\"\"
+
+gpd <- globi_pollinators[!grepl("http|\"Abundance\"\"\"|null|N/A N/A", globi_pollinators$targetTaxonName),]
+
+unique(gpd$targetTaxonName)
+
+check <- gpd %>% 
+  distinct(targetTaxonName, keep.all = TRUE)
+
+### New issue, targetTaxonName isn't always the plant, its sometimes the bee instead...So clean up sourceTaxonName? 
+
+unique(gpd$sourceTaxonName)
+
+gps <- gpd[!grepl("http|\"Abundance\"\"\"|null|N/A N/A", gpd$sourceTaxonName),]
+```
+
+Now we're at an issue, the interaction can go either way between sourceTaxonName <-> targetTaxonName as far as the bee and plant is concerned...
+  *Fixes: We can code up a logical output that detects Hymenoptera in the sourceTaxonName field and outputs if found TRUE and if not found returns FALSE, and then go from there by creating new columns with PollinatingBee and PollinatedPlant 
+  
+```{r}
+gps %>%  
+  distinct(sourceTaxonOrderName) %>% 
+  select(sourceTaxonOrderName)
+
+# Well thats odd, how did these guys make it into our dataset?
+
+gps %>% 
+  select(sourceTaxonOrderName) %>% 
+  count(sourceTaxonOrderName, sort = TRUE)
+
+gps %>% 
+  select(sourceTaxonOrderName, targetTaxonOrderName) %>% 
+  filter(targetTaxonOrderName == "Cheilostomatida")
+
+good_sources <- c("Hymenoptera", "Malvales", "Asterales", "Caryophyllales")
+# Well small instances of them made it in...interesting. 
+
+gps %>% 
+  select(sourceTaxonOrderName, targetTaxonOrderName, interactionTypeName) %>% 
+  filter(sourceTaxonOrderName == "Lepidoptera")
+
+### Well Regardless, we need to drop these ones
+
+gpl <- gps %>% 
+  filter(sourceTaxonOrderName %in% good_sources)
+
+gpl %>% 
+  select(sourceTaxonOrderName) %>% 
+  count(sourceTaxonOrderName, sort = TRUE)
+
+### What are those connections of plants to? Lets hope its bees...
+
+test_sources <- c("Malvales", "Asterales", "Caryophyllales")
+
+gpl %>% 
+  filter(sourceTaxonOrderName %in% test_sources) %>% 
+  select(sourceTaxonOrderName, targetTaxonOrderName) # Good that checks out. 
+
+### And check the targetTaxonOrderName
+
+gpl %>% 
+  select(targetTaxonOrderName) %>% 
+  count(targetTaxonOrderName, sort = TRUE)
+
+bad_targets <- c("Hymenoptera", "Lepidoptera", "Coleoptera", "Diptera", "Hemiptera", "Chondrosida", "Littorinimorpha", "Cyrtolophosidida", "Leptothecata", "Lucinida", "Mantodea", "Orthoptera", "Aplousobranchia", "Capnodiales", "Cheilostomatida", "Decapoda", "Diplostraca", "Eunotiaceae", "Araneae", "Afrosoricida") 
+
+gph <- gpl %>% 
+  filter(!targetTaxonOrderName %in% bad_targets ) %>% 
+  filter(!targetTaxonOrderName == "") # Also the blank space. 
+
+gph %>% 
+  select(targetTaxonOrderName) %>% 
+  count(targetTaxonOrderName, sort = TRUE)
+
+### Lets also take a closer look at our "bad_targets" 
+
+weird_oddities <- gps %>% 
+  filter(targetTaxonOrderName %in% bad_targets) 
+
+weird_oddities2 <- weird_oddities %>% 
+  filter(targetTaxonOrderName == "Chondrosida")
+
+```
+Maybe we'll figure out how to swap those 4 observations that are source/target swapped, but for now lets get the rest of the analysis out of the way.
+
+What if we just look at California's Interactions?
+```{r}
+gph %>% 
+  select(decimalLongitude, decimalLatitude)
+
+# Bring in the shapefile of California
+eco_map <- sf::read_sf("/home/jt-miller/Documents/CCBER/occurrence-maps/filter_polygon/cali_ecoregions_3/ca_eco_l3.shp") %>% 
+  sf::st_transform('+proj=longlat +datum=WGS84')
+
+interactions_w_coords <- gph %>% 
+  dplyr::filter(!is.na(decimalLatitude)|!is.na(decimalLongitude)) %>% 
+  dplyr::filter(!(decimalLongitude == "")) %>% 
+  dplyr::filter(!(decimalLatitude == ""))
+
+interactions_w_coords_w_crs <- st_as_sf(interactions_w_coords, coords = c('decimalLongitude', 'decimalLatitude'), crs = 4326)
+
+interactions_bounded <-interactions_w_coords_w_crs[eco_map,]
+
+### Well we will not be only using interactions bounded to california considering there is only 5...
+```
+
+*What plants are listed as pollinated so we can generate a occurrence query?*
+```{r}
+gph %>% 
+  distinct(targetTaxonPhylumName)
+
+target_fam_df <- gph %>% 
+  distinct(targetTaxonFamilyName)
+
+as.data.frame(sapply(target_fam_df, function(targetTaxonFamilyName) gsub("\"", "", targetTaxonFamilyName)))
+
+xy.list <- list(target_fam_df)
+
+
+print(xy.list)
+
+#xy.list.new <- noquote(xy.list)
+
+for(i in 1:length(xy.list)){
+  write.table(data.frame(xy.list[[i]]),file='test.txt',append=TRUE, row.names=FALSE, quote = FALSE)
+  cat('\n',file='test.txt',append = TRUE)  
+}
+
+
+```
+### Plants In California ###
+```{r}
+plant_fams <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Globi-Bees-Plants-Interactions/Raw-Data/Plant-Data/Plant-iDigBio-Pull/plant_family_occurrences.csv")
+
+names(plant_fams)
+head(plant_fams$idigbio.geoPoint)
+
+plant_fams2 <- plant_fams
+# Need to fix idigbio.geoPoint to work with our methods
+
+plant_fams2 <- plant_fams2 %>% 
+  mutate(idigbio.geoPoint = as.factor(idigbio.geoPoint)) %>% 
+  mutate(new_coords = str_replace_all(idigbio.geoPoint, "lon", "")) %>% 
+  mutate(newer_coords = str_replace_all(idigbio.geoPoint, "lat", ""))
+
+
+plant_fams2 <- str_replace_all(plant_fams2$idigbio.geoPoint, "lat", "")
+
+
+head(plant_fams3$idigbio.geoPoint)
+```
+
+
+Next, we want to produce some summaries on pollination
+*Is pollinators interaction conserved at the genus level of the plants?*
+```{r}
+
+#### Set up #####
+
+# First we need to extract the genus for each plant.
+gph$target_genus_string <- str_extract(gph$targetTaxonName, "(\\w+)")
+
+# Save some work and do this for the bees as well
+
+gph$source_genus_string <- str_extract(gph$sourceTaxonName, "(\\w+)")
+
+names(gph)
+
+#### Analysis ####
+
+Plant_genus <- gph %>% 
+  group_by(target_genus_string) %>% 
+  count(sourceTaxonName)
+
+  
+```
+
