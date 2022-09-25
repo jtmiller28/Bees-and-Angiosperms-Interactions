@@ -1,0 +1,162 @@
+---
+title: "Parallize_Taxonomic_Resolution"
+author: "JT Miller"
+date: "2022-09-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### An idea for speeding up taxonomic resolution services, it is often the case that resolving alot of names simultaneously takes a LONG time. Perhaps utilizing parallel processing we can speed this process up? ###
+
+```{r}
+library(doParallel) # A parallizing package for R
+```
+
+R operates on a singular core 
+Rstudio operates on 2 cores (one for the GUI interface, one for R)
+Many computers have multiple cores, for example 
+```{r}
+numCores <- detectCores()
+numCores # I have 16 cores on my laptop
+```
+
+This opens up the possibility of utilizing all of our cores simultaneously (i.e. parallel processing) in order to compute name resolution rather than waiting on a R utilizing a singular core
+
+It should be noted however that parallel processing *is not* the solution for every task, really parallel processing in R is only particularly useful for repeated tasks, such as for loops. 
+
+So...Could we break up a large taxonomic list into singular names, run them through a for loop, and make that for loop parallel processing to speed up our resolution time? 
+
+In regards to a 16 processor machine, can we resolve 16 names simultaneously vs 1 name per iteration of the function?
+
+
+Bring in some of my own data as an example 
+```{r}
+idigbio_plant_names <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Processed-Data/cleaned_idigbio_plant_names.csv") # Plants for a good portion of western north america
+
+### Lets take a subset of those so that we can do some repeatable testing 
+
+subset_100 <- idigbio_plant_names[1:100,1] # Create a subset of 1000 
+
+```
+
+To run the data normally
+```{r}
+start.time <- Sys.time()
+hundred_resolved <- TNRS(subset_100, # data
+                        sources = "wfo", # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "best", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken 
+```
+
+Now lets explore how to do the same resolution for 1000 names but using parallize
+*Structuring our data as a list is a method we can use for accessing each scientificName in the dataset
+*We can then write a for-loop that goes through each name and proceeds to compute the TNRS fxn
+*We can then edit that loop in order to parallize the process, making it where the loop is computing 16 times per iteration so to speak
+*Each loop should store the output 
+
+The structure as a for-loop
+```{r}
+names <- subset_100 # renaming so our for-loop is easier to multipurpose
+#names_holder <- seq(NA, length(names)) # Create a holding vector for our names list 
+for(i in 1:length(names)){
+  resolved_name <- TNRS(names[i],
+                        sources = "wfo",
+                        classification = "wfo", 
+                        mode = "resolve",
+                        matches = "best",
+                        accuracy = NULL
+                        )
+  #names_holder <- resolved_name[i] # Store the name in a position 
+}
+
+
+
+```
+
+The structure as a parallized loop
+```{r}
+foreach(i=1:length(names), .combine = rbind) %dopar% {
+  
+  resolved_name <- TNRS(names[i],
+                        sources = "wfo",
+                        classification = "wfo", 
+                        mode = "resolve",
+                        matches = "best",
+                        accuracy = NULL
+                        )
+  
+}
+```
+*DO NOT RUN* Will Forcequite R, run this through Terminal...
+```{r eval=FALSE, include=FALSE}
+library(foreach)
+library(doParallel)
+library(lcvplants)
+library(LCVP)
+numCores <- detectCores()
+numCores <- numCores - 1
+registerDoParallel(numCores)
+
+idigbio_plant_names <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Processed-Data/cleaned_idigbio_plant_names.csv")
+
+dropped_df <- idigbio_plant_names[sapply(strsplit(as.character(idigbio_plant_names$dwc.scientificName)," "),length)>1,]
+
+subset <- dropped_df[1:5000]
+
+split <- split(subset, ceiling(seq_along(subset)/500))
+
+
+start.time <- Sys.time()
+parallel_df <- foreach(i=1:length(split), .combine = rbind) %dopar% {
+  
+  search_result <- lcvp_search(split[[i]])
+  
+}
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken 
+
+#########
+start.time <- Sys.time()
+search_result <- lcvp_search(subset)
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+```
+
+
+
+### Parallelizing the TNRS query 
+```{r}
+numCores <- detectCores()
+numCores <- 10 # Safer
+registerDoParallel(numCores)
+idigbio_plant_names <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Processed-Data/cleaned_idigbio_plant_names.csv")
+
+data <- idigbio_plant_names[1:100,]
+start.time <- Sys.time()
+
+split <- split(data, ceiling(seq_along(data)/10))
+
+Parallel_TNRS <- foreach(i=1:length(split), .combine = rbind) %dopar% {
+names <- TNRS(split[[i]], # data
+                        sources = "wfo", # the sources of the TNRS sources you wish to use for resolution. 
+                        classification = "wfo", # Family classification to use...honestly I dont understand what they mean
+                        mode = "resolve", # Options are to either "resolve" or "parse" the scientificName
+                        matches = "best", # Options are to retunr "all" or "best" 
+                        accuracy = NULL # Numeric: If specified you can set a value x <= score for what is returned. 
+                        )
+}
+end.time<- Sys.time()
+time.taken <- end.time - start.time
+time.taken 
+```
+
