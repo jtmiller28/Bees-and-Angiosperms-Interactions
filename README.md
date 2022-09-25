@@ -1,4 +1,4 @@
-# Bee and Angiosperm interactions Maps
+# Bee and Angiosperm interaction Maps
 
 This is my research oriented repository for exploring bee & flowering plant co-occurrences, interactions, and relational biodiversity. 
 
