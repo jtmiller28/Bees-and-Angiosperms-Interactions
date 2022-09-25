@@ -5,7 +5,7 @@ This is my research oriented repository for exploring bee & flowering plant co-o
 ## **Research Question(s)**
 1. What drives bee diversity in California? 
 2. How can we link flowering plant & bee diversity using open source occurrence data? 
-3. What trends in the level 3 ecoregions of California shape these two groups assemblages?
+3. What abiotic trends in the level 3 ecoregions of California shape these two groups assemblages?
 
 ## **Goals of the Project**
 - Using iDigBio & GBIF occurrence records we would like to investigate trends in diversity and spatial distribution of bees & angiosperms of the level 3 EPA ecoregions originating in California.
