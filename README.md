@@ -24,9 +24,9 @@ Flowering plants are a logical next step for our research question for two reaso
 - Open-source data providers, collection managers, and collectors. In order to give back to the biodiversity informatics community, a goal of this project is to provide reproducible workflow and well noted methodology for dealing with occurrence data. Versions of the compiled occurrence data for bee & angiosperm are planned to be openly published for subsequent research projects involving these groups within the proposed geographic extent.  
 
 **Owner**
---- 
+ 
 JT Miller: iDigBio Post-bac researcher at the Soltis Lab University of Florida, and research affiliate at CCBER UC Santa Barbara 
---- 
+
 **Advisors for Project**
 - Katja Seltmann: Director of CCBER at UCSB, Advisor on Bee diversity, natural history, and biodiversity informatics. 
 - Pamela Soltis: Co PI for the Soltis Lab at UF. Advisor on Flowering plant diversity and systematics. 
