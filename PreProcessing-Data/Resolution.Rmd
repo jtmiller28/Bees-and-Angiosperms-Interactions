@@ -1,0 +1,243 @@
+---
+title: "Resolution"
+author: "JT Miller"
+date: "2022-10-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### A markdown Comprised of the necessary step-by-step requirements to complete name resolution workflow ###
+
+Requirements:
+1) Pull in verbatim names for the combined GBIF & idigbio datasets (PLANTS)
+2) Fix SN & Parsing Issues
+3) Run Name List of just SN through Nomer, bring data into markdown 
+4) Locate cases where there are multiple mappings for a given providedName, Determine which cases exhibit non n:1 mappings (where n = duplicate providedNames)
+5) Run these cases back through nomer requiring Authorship
+      * If authorship is not provided for any instance of a particular name, that name cannot be used in the analysis
+      * If authorship is provided irregularly for a name with multiple mapping paths, then it should be flagged that Authorship is a requirement we Realign with sql. 
+      
+# Necessary Libraries 
+```{r}
+library(tidyverse)
+library(sqldf)
+library("rgnparser")
+library(WorldFlora)
+```
+
+### Step 1: Bringing in verbatim name df from idigbio & gbif
+```{r}
+gbif_raw_names <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/GBIF-Pull/Uniform-Methods-Data-Pull/0018087-220831081235567/verbatim-names.txt", header = TRUE)
+
+idigbio_raw_names <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/iDigBio-Pull/Uniform-Methods-Pull/ba15a9dd-d0ba-49ee-8477-7eccbd5a444d/sql-select.csv")
+
+# Reformat data if necessary 
+idigbio_raw_names <- idigbio_raw_names %>% 
+  rename(dwc.genus = field77, dwc.infraspecificEpithet = field101, dwc.occurrenceID = field136, dwc.scientificName = field165, dwc.scientificNameAuthorship = field166, dwc.specificEpithet = field169)
+
+# Removal of redudant row showing column headers 
+idigbio_raw_names <- idigbio_raw_names[-1,]
+```
+
+### Step 2: Assuring Name Continuity 
+```{r}
+# Composition of names, authors, and occurrence ID 
+idigbio_raw_names_SNless <- idigbio_raw_names %>% 
+  filter(dwc.scientificName == "") # 5,477 names without a scientificName
+
+idigbio_raw_names_gain <- idigbio_raw_names %>% 
+  filter(dwc.scientificName == "" & !dwc.genus =="") %>%  # 1687
+  filter(!dwc.specificEpithet == "") # Only 110 of these names are actually salvagable 
+
+idigbio_raw_names_fixed <- idigbio_raw_names_gain %>% 
+  mutate(dwc.scientificName = str_c(dwc.genus, ' ', dwc.specificEpithet)) # Salvage 
+
+idigbio_raw_names_SN <- idigbio_raw_names %>% 
+  filter(!dwc.scientificName == "") %>% 
+  rbind(idigbio_raw_names_fixed) %>%  # Add in the salvaged names...
+  rename(genus = dwc.genus, infraspecificEpithet = dwc.infraspecificEpithet, occurrenceID = dwc.occurrenceID, scientificName = dwc.scientificName, scientificNameAuthorship = dwc.scientificNameAuthorship, specificEpithet = dwc.specificEpithet) # Reformat names for combining dfs...
+
+# Rinse and Repeat for GBIF 
+
+# Composition of names, authors, and occurrence ID 
+gbif_raw_names_SNless <- gbif_raw_names %>% 
+  filter(scientificName == "") # 
+
+gbif_raw_names_gain <- gbif_raw_names %>% 
+  filter(scientificName == "" & !genus =="") %>%  
+  filter(!specificEpithet == "") 
+
+gbif_raw_names_fixed <- gbif_raw_names_gain %>% 
+  mutate(scientificName = str_c(genus, ' ', specificEpithet)) # Salvage 
+
+gbif_raw_names_SN <- gbif_raw_names %>% 
+  filter(!scientificName == "") %>% 
+  rbind(gbif_raw_names_fixed) # Add in the salvaged names...
+
+# Bring the datasets together 
+idigbio_s <- idigbio_raw_names_SN %>% 
+  select(scientificName, scientificNameAuthorship) 
+
+gbif_s <- gbif_raw_names_SN %>% 
+  select(scientificName, scientificNameAuthorship)
+
+raw_names_c <- rbind(idigbio_s, gbif_s)
+
+# Deal with possible https in scientificName, as this will mess up parsing algorithms
+raw_names_c <- raw_names_c %>% 
+  filter(!grepl("https", scientificName))
+
+# We want only distinct combinations of SN & Authors
+raw_names_d <- raw_names_c %>% 
+  distinct(scientificName, scientificNameAuthorship, .keep_all = TRUE)
+```
+
+## We want to run gn-parse on our names, considering cases where:
+ 1) Authorship was not provided, but possibly was embedded in the scientificName field 
+ 2) Authorship was provided, but also was possibly embedded in the scientficName field 
+It seems important that we don't drop Authorships that were manually written, even if they differ from what was embedded in the SN. Therefore when realigning, prioritize initially written SN authorships and backfill with parsed authorships where possible. 
+```{r}
+# To do this lets firsst parse the names...
+raw_names_d2 <- raw_names_d %>% 
+  select(scientificName)
+
+# Read data out into a tab-delimited txt file for nomer parsing 
+write.table(raw_names_d2, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/distinct-names-for-parsing.txt", row.names = FALSE, sep="\t", quote = FALSE)
+
+# Read in parsed names
+parsed_names <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/parsed-names.txt", header = TRUE, quote = "") 
+
+# Make it the same indexing as our parent raw_names_d 
+parsed_names <- parsed_names[-1,]
+rownames(parsed_names) = seq(length=nrow(parsed_names))
+
+# Reaffix to previous df, keeping in mind that if authorship was included in the previous df we want to use that and if not to include the authorship from parsed_names. In all cases we want the parsed_names resolvedName 
+
+
+name_table <- cbind(raw_names_d, parsed_names)
+
+name_table2 <- name_table
+
+# Create an if-else statement, if ScientificNameAuthorship was not filled out by the providers, then look at the resolvedAuthorship column that was broken out by gn-parse. If there is a value there then append it to scientificNameAuthorship. 
+name_table2$scientificNameAuthorship <- ifelse(name_table2$scientificNameAuthorship == "", name_table2$resolvedAuthorship, name_table2$scientificNameAuthorship) 
+
+# Simplify Parsed Name Table 
+name_table_c <- name_table2 %>% 
+  select(resolvedName, scientificNameAuthorship) %>% 
+  rename(scientificName = resolvedName)
+
+```
+
+## Step 3: Run through Nomer for first round of resolution while only considering SN 
+```{r}
+# Only consider SN for this run through Nomer 
+name_table_SN <- select(name_table_c, scientificName)
+
+# Write it out for Nomer...
+write.table(name_table_SN, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/SN-for-Resolution.txt", row.names = FALSE, sep="\t", quote = FALSE)
+
+# Read in Nomer's Input...
+resolved_SN <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/SN-Resolution.txt", header = TRUE, quote = "") 
+
+# Get rid of Redundant first row, Grab only names that can map for now. 
+resolved_SN2 <- resolved_SN %>% 
+  filter(!providedName == "scientificName") %>% 
+  filter(!relationName == "NONE")
+  
+# Set aside NONE resolutions for WFO online tool resolution
+failed_names <- resolved_SN %>% 
+  filter(relationName == "NONE")
+
+# Find these with their authors in our name_table_c
+failed_names_v <- failed_names$providedName
+
+name_table_fails <- name_table_c %>% 
+  filter(scientificName %in% failed_names_v)
+
+# Write out failed names to a file so that we can send it to the hypergator for resolution...
+write.table(name_table_fails, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/failed-names.txt", row.names = FALSE, sep="\t", quote = FALSE)
+```
+
+## Step 4: Locate instances of multiple mappings:
+  1) In the case of multiple names mapping to the SAME name, thats fine and should be maintained for our final Name Map
+      ex: providedName        providedAuthorship            acceptedName        acceptedAuthorship
+          Quercus fagaceae    L.                            Quercus fagaceae    L.
+          Quercus fagaceae                                  Quercus fagaceae    
+      
+*Here its important to note that ANY authorship provided is fine. (this alleviates small cases of character mismatch in authorship)
+      
+  2) In the case of multiple names mapping to DIFFERENT names, thats something that can cause problems therefore we know that Authorship IS needed in order to determine mappings  
+    ex: providedName        providedAuthorship            acceptedName                  acceptedAuthorship
+        Quercus fagaceae    L.                            Quercus fagaceae              L.
+        Quercus fagaceae    Jimmy                         Quercus fagaceae var. jillen  Jimmy
+        Quercus fagaceae                                  Quercus fagaceae                    
+
+*Here, its important to note that in cases where authorship IS NOT provided, we cant use this name...its ambigious and unclear therefore should result in throwing the data out. 
+```{r}
+# Identify instances where there are multiple of the same provided name...
+multiple_mappings <- resolved_SN2 %>% 
+  group_by(providedName) %>% 
+  filter(n() > 1) # if there is more than one instance grab it 
+
+# Identify instances where these multiples are going to same resolvedName,
+multiple_mappings_s <- multiple_mappings %>%
+  group_by(providedName) %>% 
+  filter(n_distinct(resolvedName) == 1) # Grab only times that the number of distinct matches in resolvedName = 1
+
+# Interesting...seems we have a lot of cases of duplicates, not sure where in the workflow this was introduced. Possible remedy by very end is using distinct the final mapping? 
+
+# Identify instances where these multiples are going to different resolvedNames...
+multiple_mappings_d <- multiple_mappings %>% 
+  group_by(providedName) %>% 
+  filter(!n_distinct(resolvedName) == 1) # Grab only time that the number of distinct matches in resolvedName =/= 1
+
+# Grab these names that map differently and subset our initial name_table_c by them
+mult_map_different_name_v <- multiple_mappings_d$providedName
+
+name_table_c_mult_mappings <- name_table_c %>% 
+  filter(scientificName %in% mult_map_different_name_v) # Note: will have a smaller amount due to non-multiples being in name_table_c
+
+# Drop names on the condition that they do not include necessary authorship...too ambiguous to be useful for our mapping. 
+new_table_c_mult_mappings_w_a <- name_table_c_mult_mappings %>% 
+  filter(!scientificNameAuthorship == "")
+```
+
+## Step 5: Send these different resolution mapping names through Nomer with the inclusion of authorship. 
+```{r}
+# Write out the df for nomer resolution...
+write.table(new_table_c_mult_mappings_w_a, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/mult-mapping-names.txt", row.names = FALSE, sep="\t", quote = FALSE)
+
+# Read in the resolution...
+resolved_mult_maps <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/mult-mapping-names-resolution.txt", header = TRUE, quote = "") 
+
+# Successes?
+corrected_mult_maps <- resolved_mult_maps %>% 
+  filter(!relationName == "NONE")
+
+# Failures? 
+failed_mult_maps <- resolved_mult_maps %>% 
+  filter(relationName == "NONE")
+```
+
+## Step 6: Dealing with the failures. This is a tricky scenario where we dont want to let fuzzy matching get carried away and map our name to the other option. 
+However, from visual inspection of the data it becomes obvious that some of these failures to map are just due to small character misalignment between the WFO catalogue and inputted authorship. 
+Ex. Erigeron ursinus D.C. Eaton -> will map to NONE, however: Erigeron ursinus D.C.Eaton -> will map correctly to it being an accepted species.
+
+Solution: I propose a conservative solution in using WFO tool to match these names, using WFO.one matcher to limit our choices down to the smallest list possible, then identifying the number of character changes. Any character changes >2 Probably should be thrown out. 
+```{r}
+# Manually pick the taxonomic backbone to match against 
+WFO.file.rk <- file.choose()
+# Create a df since WFO tool is temperamental 
+spec.name <- failed_mult_maps$providedName
+Authorship <- failed_mult_maps$providedAuthorship
+failed_mults_df <- data.frame(spec.name, Authorship)
+
+failed_mults_checked <- WFO.match(failed_mults_df, 
+                                  spec.name = "spec.name",
+                                  Authorship = "Authorship",
+                                  counter = 100)
+```
+
