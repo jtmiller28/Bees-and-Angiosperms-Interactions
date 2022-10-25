@@ -85,20 +85,24 @@ gbif_raw_names_SN <- gbif_raw_names %>%
 
 # Bring the datasets together 
 idigbio_s <- idigbio_raw_names_SN %>% 
-  select(scientificName, scientificNameAuthorship) 
+  select(scientificName, scientificNameAuthorship, occurrenceID) 
 
 gbif_s <- gbif_raw_names_SN %>% 
-  select(scientificName, scientificNameAuthorship)
+  select(scientificName, scientificNameAuthorship, occurrenceID)
 
 raw_names_c <- rbind(idigbio_s, gbif_s)
 
 # Deal with possible https in scientificName, as this will mess up parsing algorithms
 raw_names_c <- raw_names_c %>% 
   filter(!grepl("https", scientificName))
+# Write out csv for resolution
+write.csv(raw_names_c, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/combined_verbatim_occurrences.csv", row.names = FALSE)
 
+write.table(raw_names_c, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/combined_verbatim_occurrences.txt", row.names = FALSE, sep="\t", quote = FALSE)
 # We want only distinct combinations of SN & Authors
 raw_names_d <- raw_names_c %>% 
   distinct(scientificName, scientificNameAuthorship, .keep_all = TRUE)
+
 ```
 
 ## We want to run gn-parse on our names, considering cases where:
@@ -146,8 +150,9 @@ name_table_SN <- select(name_table_c, scientificName)
 write.table(name_table_SN, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/SN-for-Resolution.txt", row.names = FALSE, sep="\t", quote = FALSE)
 
 # Read in Nomer's Input...
-resolved_SN <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/SN-Resolution.txt", header = TRUE, quote = "") 
+resolved_SN <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/SN-Resolution-fams.txt", header = TRUE, quote = "") 
 
+# Was checking if these are the same, feel free to ignore
 resolved_SNF <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/SN-Resolution-fams.txt", header = TRUE, quote = "")
 
 
@@ -224,9 +229,10 @@ new_table_c_mult_mappings_w_a <- name_table_c_mult_mappings %>%
 write.table(new_table_c_mult_mappings_w_a, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/mult-mapping-names.txt", row.names = FALSE, sep="\t", quote = FALSE)
 
 # Read in the resolution...
-resolved_mult_maps <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/mult-mapping-names-resolution.txt", header = TRUE, quote = "") 
+resolved_mult_maps <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/mult-mapping-names-resolved-wfams.txt", header = TRUE, quote = "") 
 
-# Successes?
+
+# Successes?  
 corrected_mult_maps <- resolved_mult_maps %>% 
   filter(!relationName == "NONE")
 
@@ -302,13 +308,13 @@ failed_noNotationC <- failed_names_d_sp4 %>%
 
 
 # Read in Nomer resolved Subsp. changes 
-subsp_res <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/subsp-resolution.txt", header = TRUE, quote = "") 
+subsp_res <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/subsp-resolution.txt", header = TRUE, quote = "")
 
 # Filter out NONE resolutions 
 
 subsp_res_fails <- subsp_res %>% 
-  filter(NONE == "NONE") %>% # 3775 failures 
-  distinct(scientificName, .keep_all = TRUE)
+  filter(relationName == "NONE") %>% # 3775 failures 
+  distinct(providedName, .keep_all = TRUE)
 
 # Sync these failures back up with their authors...Put aside for WFO tool resolution. 
 subsp_fails_v<- subsp_res_fails$scientificName
@@ -321,26 +327,26 @@ write.table(downstream_fails, file = "/home/jt-miller/Globi-Bees-Plant-Interacti
 
 # Successes 
 subsp_res_pass <- subsp_res %>%
-  filter(!NONE == "NONE")
+  filter(!relationName == "NONE")
 
 # Multiple Mappings?
 multiple_mappings_subsp <- subsp_res_pass %>% 
-  group_by(scientificName) %>% 
+  group_by(providedName) %>% 
   filter(n() > 1) # Set these aside for resolution!!!
 
 unique_mappings_subsp <- subsp_res_pass %>% 
-  group_by(scientificName) %>% 
+  group_by(providedName) %>% 
   filter(!n() > 1) # These will be included in final name table !!!
 
 # Multiple Mappings result in the SAME name 
 multiple_mappings_subsp_r <- multiple_mappings_subsp %>%
-  group_by(scientificName) %>% 
-  filter(n_distinct(scientificName.1) == 1) # These will be included in final name table !!!
+  group_by(providedName) %>% 
+  filter(n_distinct(resolvedName) == 1) # These will be included in final name table !!!
 
 # Multiple Mappings result in DIFFERENT names 
 multiple_mappings_subsp_unk <- multiple_mappings_subsp %>%
-  group_by(scientificName) %>% 
-  filter(!n_distinct(scientificName.1) == 1)
+  group_by(providedName) %>% 
+  filter(!n_distinct(resolvedName) == 1)
 
 subsp_unk_multmaps_v <- multiple_mappings_subsp_unk$scientificName
 
@@ -353,7 +359,8 @@ table_subsp_mult_maps_unk <- failed_names_d_sp4 %>%
 write.table(table_subsp_mult_maps_unk, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/subsp_multMap.txt", row.names = FALSE, sep="\t", quote = FALSE)
 
 # Read in Nomer resolution
-subsp_multmaps_resolved <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/subsp-multMap-res.txt", header = TRUE, quote = "")
+subsp_multmaps_resolved <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/subsp-multMap-res-wfams.txt", header = TRUE, quote = "")
+
 
 # Keep Successes 
 subsp_multmaps_resolved_successes <- subsp_multmaps_resolved %>% 
@@ -370,7 +377,7 @@ spec.name <- subsp_multmaps_resolved_failures$providedName
 Authorship <- subsp_multmaps_resolved_failures$providedAuthorship
 failed_mults_subsp_df <- data.frame(spec.name, Authorship)
 
-failed_mults_subsp_checked <- WFO.match(failed_mults_subsp_df, 
+failed_mults_subsp_checked <- WFO.match(failed_mults_subsp_df,
                                   WFO.file = WFO.file.rk,
                                   spec.name = "spec.name",
                                   Authorship = "Authorship",
@@ -435,14 +442,16 @@ dsf_res %>%
 
 write.csv(dsf_res, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/dsf-resolution.csv", row.names = FALSE )
 
+# Read it in
+dsf_res <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/dsf-resolution.csv")
 # Now lets only consider Angiosperms before applying filtering protocol 
-angio_fams <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Angiosperm-Family-Key/only-fams3-apg4.txt", header = FALSE)
-
+angio_fams <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Angiosperm-Family-Key/only-fams3-apg4.txt")
+#write.table(angio_fams, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Angiosperm-Family-Key/only-fams3-apg4.txt", sep="\t", quote = FALSE)
 angio_fams_v <- angio_fams$V1 # Grab a vector list of the angiosperm families 
 
 # Now subset the resolution for only finding family that is contained within known angiosperms
 dsf_res_angios <- dsf_res %>% 
-  filter(family %in% angio_fams_v) # Lost somewhere between 2 and 3 thousand names
+  filter(family %in% angio_fams_v | family == "Viburnaceae" | family == "Parnassiaceae") # Lost somewhere between 2 and 3 thousand names
 
 ```
 
@@ -470,92 +479,237 @@ failed_mults_subsp_res
 # AND ONE MORE! 
 
 dsf_res_angios_f <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/dsf-resolution-fullFiltered.csv")
+# One last edit here 
+dsf_res_angios_ff <- dsf_res_angios_f %>% 
+  filter(!taxonomicStatus == "DOUBTFUL"| !taxonomicStatus == "") # Get rid of doubtful taxonomic status
+
+# Check if this df built from the failures has instances of multiple mappings. 
+# Multiple Mappings?
+dsf_res_mult_maps <- dsf_res_angios_ff %>% 
+  group_by(spec.name) %>% 
+  filter(n() > 1) 
+# Check for instances where these mult maps lead to a unique name 
+dsf_res_mult_maps_s <- dsf_res_mult_maps %>%
+  group_by(spec.name) %>% 
+  filter(n_distinct(scientificName) == 1) # Appears that all are singular mappings therefore this step proves to be non-effective 
 
 
+#### Combining all Nomer Resolved Names #### 
+nomer_resolutions <- rbind(not_multiple_mappings, multiple_mappings_s, corrected_mult_maps, unique_mappings_subsp, multiple_mappings_subsp_r, subsp_multmaps_resolved_successes)
 
-# So Take all Nomer resolved data -> Compile a dataframe -> Seperate dataframe -> Run Through WFO.match with no Fuzzy on the resolved name -> Grab Family 
+# Remove duplicates
+nomer_resolutions_d <- nomer_resolutions %>% 
+  distinct(providedName, resolvedName, resolvedAuthorship, resolvedPath.family.name, .keep_all = TRUE)
 
-nomer_resolved_dfs <- rbind(not_multiple_mappings, multiple_mappings_s, corrected_mult_maps, unique_mappings_subsp, multiple_mappings_subsp_r, subsp_multmaps_resolved_successes)
+# There are instances where family wasnt included with designation. To solve this lets use a exact matching scheme in the WFO tool to match names of a plant family. (Also this would make a great issue for Nomer)
+famless_according_to_nomer <- nomer_resolutions_d %>% 
+  filter(resolvedPath.family.name == "" | is.na(resolvedPath.family.name)) # Find all of these instances 
 
-nomer_resolved_dfs2 <- nomer_resolved_dfs %>% 
-  select(providedName, relationName, resolvedExternalId, resolvedName, resolvedAuthorship, resolvedRank)
+# Set aside ones that do include family 
+nomer_w_fams <- nomer_resolutions_d %>% 
+  filter(!resolvedPath.family.name == "") %>% 
+  filter(!is.na(resolvedPath.family.name)) %>% 
+  rename(family = resolvedPath.family.name) 
 
-# Make it into a broken reformatted df since wfo's fxns are very particular
-providedName <- nomer_resolved_dfs2$providedName
-relationName <- nomer_resolved_dfs2$relationName
-resolvedExternalId <- nomer_resolved_dfs2$resolvedExternalId
-resolvedName <- nomer_resolved_dfs2$resolvedName
-resolvedAuthorship <- nomer_resolved_dfs2$resolvedAuthorship
-resolvedRank <- nomer_resolved_dfs2$resolvedRank
+# Use WFO's tool to find the family names of the ones Nomer missed. 
+resolvedName <- famless_according_to_nomer$resolvedName
+resolvedAuthorship <- famless_according_to_nomer$resolvedAuthorship
+famless_df <- data.frame(resolvedName, resolvedAuthorship)
+WFO.file.rk <- file.choose()
 
-nomer_res_df <- data.frame(providedName, relationName, resolvedExternalId, resolvedName, resolvedAuthorship, resolvedRank)
-
-nomer_res_df2 <- nomer_res_df %>% 
-  distinct(providedName, relationName, resolvedName, resolvedAuthorship)
-
-write.csv(nomer_res_df2, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/nomer_resolutions_need_fams.csv", row.names = FALSE)
-
-nomer_matched <- WFO.match(nomer_res_df,
-                             WFO.file = WFO.file.rk,
-                             spec.name = "resolvedName",
-                             Authorship = "resolvedAuthorship",
-                             Fuzzy = 0)
-
-
-resolvedName <- multiple_mappings_subset$resolvedName
-resolvedAuthorship <- multiple_mappings_subset$resolvedAuthorship
-
-test_df <- data.frame(resolvedName, resolvedAuthorship)
-
-test <- WFO.match(test_df, 
+fam_rec_names <- WFO.match(famless_df, 
                                   WFO.file = WFO.file.rk,
                                   spec.name = "resolvedName",
                                   Authorship = "resolvedAuthorship",
                                   counter = 100, 
-                                  Fuzzy = 0)
+                                  Fuzzy = 0) # Makes it where there is NO fuzzys
 
-mult_map_fams <- WFO.family(multiple_mappings_subset$resolvedName, WFO.file = WFO.file.rk)
+# Only take the correct names
+fam_rec_names_one <- WFO.one(WFO.result = fam_rec_names,
+                            verbose = FALSE,counter = 1000)
 
-not_mult_map
+
+# Get rid of taxonomic uncertainy records, then organize for distinct records + rename for clarity in merging datasets
+
+fam_rec_names_d <- fam_rec_names_one  %>% 
+  filter(!taxonomicStatus == "DOUBTFUL" | !taxonomicStatus == "") %>% # We don't want those known as doubtful nor ones with taxonomicStatus left blank
+  distinct(resolvedName, resolvedAuthorship, scientificName, scientificNameAuthorship, .keep_all = TRUE) %>% # Take only distinct values for all of the values
+  select(resolvedName, resolvedAuthorship, scientificName, family, taxonRank) %>% # Select the important columns for our table
+  rename(providedName = resolvedName, resolvedName = scientificName, resolvedRank = taxonRank) # Rename them for bringing the dfs together. 
+
+# Rebind these familyless and w/family records. 
+nomer_w_fams <- nomer_w_fams %>% 
+  select(resolvedName, resolvedAuthorship, resolvedRank, providedAuthorship, family)
+nomer_w_fams2 <- rbind(nomer_w_fams, fam_rec_names_d)
 
 
-# Build the table 
-final_name_table <- rbind(not_multiple_mappings, multiple_mappings_s, corrected_mult_maps, failed_mults_res, unique_mappings_subsp, multiple_mappings_subsp_r, subsp_multmaps_resolved_successes, failed_mults_subsp_res, dsf_res_angios_f)
+#### Reformat the other data to match headers of nomer output
+wfo_resolved_names <- rbind(failed_mults_res, failed_mults_subsp_res, dsf_res_angios_ff)
+
+wfo_resolved_names_reform <- wfo_resolved_names %>% 
+  filter(!taxonomicStatus == "DOUBTFUl" | !taxonomicStatus == "") %>% 
+  select(spec.name, Authorship, scientificName, scientificNameAuthorship, taxonRank, family) %>% 
+  rename(providedName = spec.name, resolvedName = scientificName,  resolvedAuthorship = scientificNameAuthorship, resolvedRank = taxonRank, providedAuthorship = Authorship)
+
+# Populate Nomer with a scientificNameAuthorship base column 
+name_table <- wfo_resolved_names_reform %>% 
+  rbind(nomer_w_fams2) 
+
+### Remove non-angiosperms 
+
+# Grab names from APG4 publication
+angio_fams <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Angiosperm-Family-Key/only-fams3-apg4.txt", header = TRUE)
+
+angio_fams_v <- angio_fams$V1 # Grab a vector list of the angiosperm families 
+
+# Remove from our table
+name_table_angios <- name_table %>% 
+  filter(family %in% angio_fams_v | family == "Viburnaceae" | family == "Parnassiaceae") # 2,962 mappings removed 
+
+name_table_angios_d <- name_table_angios %>% 
+  distinct(providedName, providedAuthorship, resolvedName, resolvedAuthorship, resolvedRank, family, .keep_all = TRUE) # 475 mappings removed 
+
+### We dont want anything only defined to the Species level or below
+name_table_angios_s <- name_table_angios_d
+name_table_angios_s$resolvedRank <- tolower(name_table_angios_s$resolvedRank) # Mesh the notation difference between nomer and wfo's tool on Rank
+
+name_table_angios_sp <- name_table_angios_s %>% 
+  filter(resolvedRank == "species" | resolvedRank == "variety" | resolvedRank == "subspecies") # Only grab these designations, disclude those that only go ot > genus or are ambigious. Drops 4,291 records 
+
+# Change name table to match template
+final_name_table <- name_table_angios_sp %>% 
+  rename(verbatimScientificNames = providedName) %>% 
+  rename(verbatimAuthorship = providedAuthorship) %>% 
+  rename(acceptedNames = resolvedName) %>% 
+  rename(acceptedAuthorship = resolvedAuthorship)
 ```
 
-### Reformat Nomer Names for Fixing... ###
 ```{r}
-nomer_names_need_fams <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/nomer_resolutions_need_fams.csv")
+# Write out name table
+write.csv(final_name_table, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/final_name_table.csv", row.names = FALSE)
+```
 
-nomer_names_need_fams3 <- nomer_names_need_fams %>% 
-  distinct(providedName, relationName, resolvedName, resolvedAuthorship)
-# Grab only the resolved Names for Nomer matching sequence
-nomer_names_need_fams2 <- nomer_names_need_fams %>% 
-  select(resolvedName) %>% 
+# Final Resolution 
+Here, we will LEFT JOIN our occurrence data with the final name table, allowing us to resolve all scientific names provided accordingly. 
+* This should remove designations that are not known in our name table
+* This shoudld be conditional upon multiple mapping instances, where authorship is necessary in order to arrive at the correct designation. 
+      -> This means that we will be breaking our final mapping table into two different parts 
+            1) A unique mapping table: A mapping table where all names will arrive at the accepted resolved name W/out need of authorship
+            2) A non-unique mapping table: A mapping table where names are ambiguous by SN alone, and therefore will need to include the conditional of                      authorship in order to correctly arrive at designation. 
+```{r}
+# Read in mapping table...
+final_name_table <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/final_name_table.csv")
+
+# Step 1) Splitting the mapping table
+
+#Find all unique Mappings
+unique_mapping_table <- final_name_table %>% 
+  group_by(verbatimScientificNames) %>% 
+  filter(n_distinct(acceptedNames) == 1) 
+
+# Find all Non-unique Mappings
+nonUnique_mapping_table <- final_name_table %>% 
+   group_by(verbatimScientificNames) %>% 
+  filter(!n_distinct(acceptedNames) == 1)
+
+# Step 2) Bring in occurrence data for LEFT JOINING
+
+# Read in data 
+occurrence_df <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/combined_verbatim_occurrences.csv")
+
+# Make occurrence ID a unique value, and assure that there is one provided at all
+occurrence_df2 <- occurrence_df %>% 
+  distinct(occurrenceID, .keep_all = TRUE)  %>% # Only unique occurrenceIDs are acceptable
+  filter(!occurrenceID == "") %>% # Remove instances where this field is blank
+  filter(!is.na(occurrenceID)) # Remove instances where this field is NA 
+
+write.table(occurrence_df2, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/combined_verbatim_occurrences_filtered.txt", row.names = FALSE, sep="\t", quote = FALSE)
   
+# Note that the data is currently unparsed in its SN field, we will need to use NOMER GN-PARSE in order to parse names, while retaining occurrenceID with the designations.  
+# Used: cat combined_verbatim_occurrences_filtered.txt  |sed 's/^/\t/g' | nomer append gn-parse --properties my.properties3 > combined_verbatim_occurrences_parsed.txt
 
-# Ran through nomer...with properties adjusted to add family name
-write.table(nomer_names_need_fams2, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/names_need_fams_nomer_RNO.txt", row.names = FALSE, sep="\t", quote = FALSE)
+occur_parsed <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/combined_verbatim_occurrences_parsed.txt", quote = "")
 
-# Read in the names 
-nomer_names_w_fams <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/names_w_families_nomer_res.txt", header = TRUE)
+# Testing for timing and litnus test 
+occur_df <- occur_parsed
 
-# Looks like we'll need to use our SQL query to attach family names to these. First lets make a nomer_fname_table 
-nomer_fname_table <- nomer_names_w_fams %>% 
-  rename(family = resolvedPath.family.name) %>% 
-  select(providedName, resolvedName, family)
+occur_df2 <- occur_df %>%  
+  rename(providedName = scientificName, providedAuthorship = scientificNameAuthorship, scientificName = scientificName.1, parsedAuthorship = X.2) %>%
+  select(providedName, providedAuthorship, scientificName, parsedAuthorship, occurrenceID)
 
-# We only want distinct combinations 
-nomer_fname_table2 <- nomer_fname_table %>% 
-  distinct(providedName, resolvedName, family)
+# Use an if else statement to create a Authorship column that pulls from what the provider wrote OR alternatively what was parsed 
 
-# Remap names to include their families 
+occur_df2$providedAuthorship <- ifelse(occur_df2$providedAuthorship == "", occur_df2$parsedAuthorship, occur_df2$providedAuthorship)
+
+# Clean up to only include whats necessary...
+occur_df3 <- occur_df2 %>% 
+  select(providedAuthorship, scientificName, occurrenceID) %>% 
+  rename(authorship = providedAuthorship) %>% 
+  relocate(authorship, .after = scientificName)
+
+# AND apply the Notational Changes for catalogue (ssp. -> subsp.)
+occur_df4 <- occur_df3 %>% 
+  mutate(scientificName = str_replace(scientificName, "ssp.", "subsp."))
+
 names_remapped <- sqldf("SELECT dataset.*, real_name_map.resolvedNames 
-FROM sample_df dataset 
+FROM occur_df4 dataset 
 LEFT JOIN (SELECT DISTINCT sub_dataset.scientificName, MAX(sub_real_names.acceptedNames) resolvedNames
-    FROM sample_df sub_dataset
-    LEFT JOIN sample_mapping_table sub_real_names ON sub_dataset.scientificName = sub_real_names.verbatimScientificNames
+    FROM occur_df4 sub_dataset
+    LEFT JOIN unique_mapping_table sub_real_names ON sub_dataset.scientificName = sub_real_names.verbatimScientificNames
     GROUP BY sub_dataset.scientificName) real_name_map ON dataset.scientificName = real_name_map.scientificName")
 
+# Grab all of the names that failed to map
+name_fails <- names_remapped %>% 
+  filter(is.na(resolvedNames)) 
+
+# We can only consider ones that have authorship written for resolution against multiple mappings
+name_fails_w_authors <- name_fails %>% 
+  filter(!authorship == "")
+
+# And apply the non-unique resolution
+
+names_remapped_auths <- sqldf("SELECT dataset.*,
+			real_names.acceptedNames
+			
+FROM 		name_fails_w_authors dataset
+LEFT JOIN 	nonUnique_mapping_table real_names ON dataset.scientificName = real_names.verbatimScientificNames
+
+WHERE		(
+				real_names.acceptedNames =	(
+												SELECT		MAX(sub_real_names.acceptedNames)
+												
+												FROM		nonUnique_mapping_table sub_real_names
+												
+												WHERE		dataset.scientificName = sub_real_names.verbatimScientificNames
+												AND 	
+												  		dataset.authorship = acceptedAuthorship
+                       OR 
+                              dataset.authorship = verbatimAuthorship
+              GROUP BY	sub_real_names.verbatimScientificNames) )")
+
+names_remapped_auths_d <- names_remapped_auths %>% 
+  distinct(scientificName, authorship, occurrenceID, acceptedNames )
+
+# Bring together in a final df 
+part_res_df <- names_remapped
+
+names_remapped_auths_d2 <- names_remapped_auths_d %>% 
+  rename(resolvedNames = acceptedNames)
+
+full_res_df <- part_res_df  %>% 
+  filter(!is.na(resolvedNames)) %>% 
+  rbind(names_remapped_auths_d2) # It appears that we have 9,212,674 records out of the original 10,183,059 records after name reconsilation. (otherwords we lost 970,385 records due to naming)
+
+tst <- full_res_df %>% 
+  filter(scientificName == "Agrostis tenuis") # Just to check multimapping functioning, appears to be working perfectly. 
 ```
+
+# Write it out to a txt and csv -> Send it to another script to join with post-processed data
+```{r}
+write.csv(full_res_df, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Resolved_verbatim.csv", row.names = FALSE)
+
+write.table(full_res_df, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Resolved_verbatim.txt", row.names = FALSE, sep="\t", quote = FALSE)
+```
+
+
 
