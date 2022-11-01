@@ -461,6 +461,10 @@ Filter requirements: We want names that were not modified to a large extent, unl
 dsf_res_angios_f <- dsf_res_angios %>% 
   filter(Fuzzy.dist <= 10 | Old.status == "SYNONYM")
 
+# Defunct! It appears that this is not in fact rigirous enough as an umbrella resolution. 
+dsf_res_angios_f <- dsf_res_angios %>% 
+  filter(Fuzzy.dist <= 3)
+
 write.csv(dsf_res_angios_f, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/dsf-resolution-fullFiltered.csv", row.names = FALSE)
 ```
 
@@ -481,7 +485,7 @@ failed_mults_subsp_res
 dsf_res_angios_f <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/dsf-resolution-fullFiltered.csv")
 # One last edit here 
 dsf_res_angios_ff <- dsf_res_angios_f %>% 
-  filter(!taxonomicStatus == "DOUBTFUL"| !taxonomicStatus == "") # Get rid of doubtful taxonomic status
+  filter(!taxonomicStatus == "") # We cant have records with blank relations..
 
 # Check if this df built from the failures has instances of multiple mappings. 
 # Multiple Mappings?
@@ -532,7 +536,7 @@ fam_rec_names_one <- WFO.one(WFO.result = fam_rec_names,
 # Get rid of taxonomic uncertainy records, then organize for distinct records + rename for clarity in merging datasets
 
 fam_rec_names_d <- fam_rec_names_one  %>% 
-  filter(!taxonomicStatus == "DOUBTFUL" | !taxonomicStatus == "") %>% # We don't want those known as doubtful nor ones with taxonomicStatus left blank
+  filter(!taxonomicStatus == "") %>% # We cant have records with blank relations
   distinct(resolvedName, resolvedAuthorship, scientificName, scientificNameAuthorship, .keep_all = TRUE) %>% # Take only distinct values for all of the values
   select(resolvedName, resolvedAuthorship, scientificName, family, taxonRank) %>% # Select the important columns for our table
   rename(providedName = resolvedName, resolvedName = scientificName, resolvedRank = taxonRank) # Rename them for bringing the dfs together. 
@@ -547,7 +551,7 @@ nomer_w_fams2 <- rbind(nomer_w_fams, fam_rec_names_d)
 wfo_resolved_names <- rbind(failed_mults_res, failed_mults_subsp_res, dsf_res_angios_ff)
 
 wfo_resolved_names_reform <- wfo_resolved_names %>% 
-  filter(!taxonomicStatus == "DOUBTFUl" | !taxonomicStatus == "") %>% 
+  filter(!taxonomicStatus == "") %>% 
   select(spec.name, Authorship, scientificName, scientificNameAuthorship, taxonRank, family) %>% 
   rename(providedName = spec.name, resolvedName = scientificName,  resolvedAuthorship = scientificNameAuthorship, resolvedRank = taxonRank, providedAuthorship = Authorship)
 
@@ -583,10 +587,36 @@ final_name_table <- name_table_angios_sp %>%
   rename(acceptedNames = resolvedName) %>% 
   rename(acceptedAuthorship = resolvedAuthorship)
 ```
+### Dealing with "Doubtful" Names. 
+Currently Nomer does not recongize the designation of Doubtful in WFO. [Currently waiting on definitive definition of these name relations meaning, however; it seems prudent to create a table that completely removes these types of names]
+For now, lets make 2 versions of the final table to check for name alignment. 
+```{r}
+### Locate the names in WFO online's backbone
+wfo_backbone <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/WFO/2022.07-Backbone/classification.txt", quote = "")
+
+# Isolate instances of "Doubtful"
+wfo_backbone_doubtful <- wfo_backbone %>% 
+  filter(taxonomicStatus == "DOUBTFUL")
+
+
+
+# Create a vector of these names for pulling out of our data...
+wfo_doubtfuls <- wfo_backbone_doubtful$scientificName
+
+# Create a version where final name table is original
+final_name_table <- final_name_table 
+
+# Create a version where "doubtful" names are removed
+final_name_table2 <- final_name_table %>% 
+  filter(!acceptedNames %in% wfo_doubtfuls) # Cuts almost 1300 names out of the final mapping table. 
+  
+```
 
 ```{r}
 # Write out name table
 write.csv(final_name_table, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/final_name_table.csv", row.names = FALSE)
+
+write.csv(final_name_table2, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/final_name_table_w_out_doubtful.csv", row.names = FALSE)
 ```
 
 # Final Resolution 
@@ -682,9 +712,9 @@ WHERE		(
 												
 												WHERE		dataset.scientificName = sub_real_names.verbatimScientificNames
 												AND 	
-												  		dataset.authorship = acceptedAuthorship
+												  		(dataset.authorship = acceptedAuthorship
                        OR 
-                              dataset.authorship = verbatimAuthorship
+                              dataset.authorship = verbatimAuthorship)
               GROUP BY	sub_real_names.verbatimScientificNames) )")
 
 names_remapped_auths_d <- names_remapped_auths %>% 
@@ -711,5 +741,119 @@ write.csv(full_res_df, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data
 write.table(full_res_df, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Resolved_verbatim.txt", row.names = FALSE, sep="\t", quote = FALSE)
 ```
 
+### Repeat for Doubtfuless data designations. 
+```{r}
+# Read in mapping table...
+final_name_table <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/final_name_table_w_out_doubtful.csv")
 
+# Step 1) Splitting the mapping table
+
+#Find all unique Mappings
+unique_mapping_table <- final_name_table %>% 
+  group_by(verbatimScientificNames) %>% 
+  filter(n_distinct(acceptedNames) == 1) 
+
+# Find all Non-unique Mappings
+nonUnique_mapping_table <- final_name_table %>% 
+   group_by(verbatimScientificNames) %>% 
+  filter(!n_distinct(acceptedNames) == 1)
+
+# Step 2) Bring in occurrence data for LEFT JOINING
+
+# Read in data 
+occurrence_df <- read.csv("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/combined_verbatim_occurrences.csv")
+
+# Make occurrence ID a unique value, and assure that there is one provided at all
+occurrence_df2 <- occurrence_df %>% 
+  distinct(occurrenceID, .keep_all = TRUE)  %>% # Only unique occurrenceIDs are acceptable
+  filter(!occurrenceID == "") %>% # Remove instances where this field is blank
+  filter(!is.na(occurrenceID)) # Remove instances where this field is NA 
+
+write.table(occurrence_df2, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/combined_verbatim_occurrences_filtered.txt", row.names = FALSE, sep="\t", quote = FALSE)
+  
+# Note that the data is currently unparsed in its SN field, we will need to use NOMER GN-PARSE in order to parse names, while retaining occurrenceID with the designations.  
+# Used: cat combined_verbatim_occurrences_filtered.txt  |sed 's/^/\t/g' | nomer append gn-parse --properties my.properties3 > combined_verbatim_occurrences_parsed.txt
+
+occur_parsed <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/combined_verbatim_occurrences_parsed.txt", quote = "")
+
+# Testing for timing and litnus test 
+occur_df <- occur_parsed
+
+occur_df2 <- occur_df %>%  
+  rename(providedName = scientificName, providedAuthorship = scientificNameAuthorship, scientificName = scientificName.1, parsedAuthorship = X.2) %>%
+  select(providedName, providedAuthorship, scientificName, parsedAuthorship, occurrenceID)
+
+# Use an if else statement to create a Authorship column that pulls from what the provider wrote OR alternatively what was parsed 
+
+occur_df2$providedAuthorship <- ifelse(occur_df2$providedAuthorship == "", occur_df2$parsedAuthorship, occur_df2$providedAuthorship)
+
+# Clean up to only include whats necessary...
+occur_df3 <- occur_df2 %>% 
+  select(providedAuthorship, scientificName, occurrenceID) %>% 
+  rename(authorship = providedAuthorship) %>% 
+  relocate(authorship, .after = scientificName)
+
+# AND apply the Notational Changes for catalogue (ssp. -> subsp.)
+occur_df4 <- occur_df3 %>% 
+  mutate(scientificName = str_replace(scientificName, "ssp.", "subsp."))
+
+names_remapped <- sqldf("SELECT dataset.*, real_name_map.resolvedNames 
+FROM occur_df4 dataset 
+LEFT JOIN (SELECT DISTINCT sub_dataset.scientificName, MAX(sub_real_names.acceptedNames) resolvedNames
+    FROM occur_df4 sub_dataset
+    LEFT JOIN unique_mapping_table sub_real_names ON sub_dataset.scientificName = sub_real_names.verbatimScientificNames
+    GROUP BY sub_dataset.scientificName) real_name_map ON dataset.scientificName = real_name_map.scientificName")
+
+# Grab all of the names that failed to map
+name_fails <- names_remapped %>% 
+  filter(is.na(resolvedNames)) 
+
+# We can only consider ones that have authorship written for resolution against multiple mappings
+name_fails_w_authors <- name_fails %>% 
+  filter(!authorship == "")
+
+# And apply the non-unique resolution
+
+names_remapped_auths <- sqldf("SELECT dataset.*,
+			real_names.acceptedNames
+			
+FROM 		name_fails_w_authors dataset
+LEFT JOIN 	nonUnique_mapping_table real_names ON dataset.scientificName = real_names.verbatimScientificNames
+
+WHERE		(
+				real_names.acceptedNames =	(
+												SELECT		MAX(sub_real_names.acceptedNames)
+												
+												FROM		nonUnique_mapping_table sub_real_names
+												
+												WHERE		dataset.scientificName = sub_real_names.verbatimScientificNames
+												AND 	
+												  		(dataset.authorship = acceptedAuthorship
+                       OR 
+                              dataset.authorship = verbatimAuthorship)
+              GROUP BY	sub_real_names.verbatimScientificNames) )")
+
+names_remapped_auths_d <- names_remapped_auths %>% 
+  distinct(scientificName, authorship, occurrenceID, acceptedNames )
+
+# Bring together in a final df 
+part_res_df <- names_remapped
+
+names_remapped_auths_d2 <- names_remapped_auths_d %>% 
+  rename(resolvedNames = acceptedNames)
+
+full_res_df <- part_res_df  %>% 
+  filter(!is.na(resolvedNames)) %>% 
+  rbind(names_remapped_auths_d2) # It appears that we have 9,212,674 records out of the original 10,183,059 records after name reconsilation. (otherwords we lost 970,385 records due to naming)
+
+tst <- full_res_df %>% 
+  filter(scientificName == "Agrostis tenuis") # Just to check multimapping functioning, appears to be working perfectly. 
+```
+
+# Write it out to a txt and csv -> Send it to another script to join with post-processed data
+```{r}
+write.csv(full_res_df, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Resolved_verbatim_w_out_doubtful.csv", row.names = FALSE)
+
+write.table(full_res_df, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Resolved_verbatim_w_out_doubtful.txt", row.names = FALSE, sep="\t", quote = FALSE)
+```
 
