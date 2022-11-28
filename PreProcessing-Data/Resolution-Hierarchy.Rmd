@@ -1,0 +1,299 @@
+---
+title: "Resolution_Hier"
+author: "JT Miller"
+date: "2022-11-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(knitr)
+opts_knit$set(root.dir = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Hierarchy-Resolution")
+
+```
+
+## A markdown to build a for-loop for resolution at a hierarchical level. 
+
+Libraries 
+```{r}
+library(tidyverse)
+library(taxize)
+library(sqldf)
+```
+Bring in the data
+```{r}
+plant_names <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Hierarchy-Resolution/distinct_c_names.txt", header = TRUE, quote = "")
+```
+
+Run it through GBIF's parsing service 
+```{r}
+gbif_parsed_plants <- gbif_parse(plant_names$scientificName) # Uses GBIF's API to parse names
+
+# Re append Authorship where written out separately. Create an if-else statement, if ScientificNameAuthorship was not filled out by the providers, then look at the authorship column that was broken out by gbif-parse. If there is a author in plant_names$ScientificNameAuthorship prioritize this, if not use gbif_parsed_plants$authorship. No authorship present will result in NA.
+
+gbif_parsed_plants$authorship <- ifelse(plant_names$scientificNameAuthorship != "", 
+                                          plant_names$scientificNameAuthorship, gbif_parsed_plants$authorship)
+
+
+```
+
+Create a for-loop that calls upon Nomer bash script for resolution. Here, we want to design a hierarchical resolution tool that starts at the most detailed version of the name and takes a step back upon failure to resolve a name. 
+
+Proposed Hierarchy: canonicalNameWithMarker + authorship > canonicalNameWithMarker > canonicalName > genusORAbove + specificEpithet
+
+Basic Logic:
+
+boolean found = false
+if (authorship exists)
+    found = try canonicalNameWithMarker + authorship
+if (!found)
+    found = try canonicalNameWithMarker
+if (!found AND canonicalNameWithMarker != canonicalName)
+    found = try canonicalName
+
+generatedName = genusOrAbove + specificEpithet
+if (!found AND canonicalName != generatedName)
+    found = try genusOrAbove + specificEpithet
+    
+Note! Currently missing logic for dealing with names that will map to multiple resolutions given no authorship...Add this later!!!
+
+```{r}
+# First, lets use a small subset of names for resolution
+
+name_subset <- gbif_parsed_plants # Grabbing ALL of the names
+
+
+name_subset <- distinct(name_subset, scientificname, authorship, .keep_all = TRUE ) # Run this prior to using the shell script.
+
+write.table(name_subset, "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Hierarchy-Resolution/name_subset.txt", row.names = FALSE, sep="\t", quote = FALSE)
+
+nomer_w_authorship_cmd <- "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Hierarchy-Resolution/Nomer-w-authorship.sh"
+
+
+### Defunct at the current moment ###
+
+system2(nomer_w_authorship_cmd,  input = "name_subset1.txt")
+# It appears this works OK, however; a secondary step could be to delete white space in authors names, this seems to be a commen reason for failure in matching. ex: M.E. Jones != M.E.Jones
+
+
+# Remove whitespace...
+name_subset2 <- name_subset1
+
+name_subset2$authorship <- gsub("\\s+", '', name_subset2$authorship)
+
+can_names <- name_subset$canonicalnamewithmarker
+# Try a if-else logic...
+exec_wait(nomer_w_authorship_cmd)
+
+# Notes from 11/25: We need to make it where we paste in names from canonicalnamewithmarker & authorship into the shell cmd. 
+if(!is.na(name_subset$authorship)){
+  exec_wait(nomer_w_authorship_cmd)
+}
+
+
+# Trying the sys package
+library(sys)
+
+exec_wait(nomer_w_authorship_cmd)
+
+_# Read what our output is giving us...
+
+
+```
+
+
+Table that plan. Seems that running bash through R has some limitations that I do not fully understand as of yet. Instead, for a short term solution, we can run Nomer on each type of iteration of the name, and then pull resolvedNames from the created tables in the hierarchical fashion mentioned. 
+
+*Refer to the Nomer-loop.sh for running resolution*
+
+First, document some of the changes necessary to build our iterations (Code chunk Currently Disabled)
+```{r eval=FALSE, include=FALSE}
+# Remove whitespace from subsetted data 
+name_subset_wout_Awhitespace <- name_subset # create a copy
+name_subset_wout_Awhitespace$authorship <- gsub("\\s+", '', name_subset$authorship) # remove whitespcae
+
+# Write it out...
+write.table(name_subset_wout_Awhitespace, file = "/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Hierarchy-Resolution/name_subset-wout-Awhitespace.txt", row.names = FALSE, sep="\t", quote = FALSE)
+
+```
+
+Now lets load in each table in order of hierarchy. 
+```{r}
+# CanonicalNameWithMarker + Authorship Resolution
+CNWM_A_Res <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Hierarchy-Resolution/CNWM-A-resolution.txt", header = TRUE, quote = "")
+
+# Change NONE to relationName
+CNWM_A_Res <- CNWM_A_Res %>% 
+  rename(relationName = NONE, resolvedName = canonicalnamewithmarker.1)
+
+# CanonicalNameWithMarker + Authorship WhiteSpace removed Resolution
+CNWM_AWS_Res <- read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Hierarchy-Resolution/CNWM-AwoutWSP-resolution.txt", header = TRUE, quote = "")
+CNWM_AWS_Res <- CNWM_AWS_Res %>% 
+  rename(relationName = NONE, resolvedName = canonicalnamewithmarker.1)
+
+# CanonicalNameWithMarker without Authorship Resolution
+CNWM_only <-read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Hierarchy-Resolution/CNWM-resolution.txt", header = TRUE, quote = "")
+CNWM_only_Res <- CNWM_only %>% 
+  rename(relationName = NONE, resolvedName = canonicalnamewithmarker.1)
+
+# CanonicalName Resolution
+CN_only <-read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Hierarchy-Resolution/CN-resolution.txt", header = TRUE, quote = "")
+
+CN_only_Res <- CN_only %>% 
+  rename(relationName = NONE, resolvedName = canonicalname.1)
+
+
+# Genus + specificEpithet resolution
+SP_only <-read.delim("/home/jt-miller/Globi-Bees-Plant-Interactions/Plant-Data/Nomer-wfo-resolution/Final-Resolution/Hierarchy-Resolution/SP-resolution.txt", header = TRUE, quote = "")
+
+SP_only_Res <- SP_only %>% 
+  rename(relationName = NONE, resolvedName = ID.1)
+
+```
+
+Now build a Resolved Table, this table will pull names from the Nomer Resolutions.
+
+Requirements:
+Preference in resolution:
+CanonicalNameWithMarker + Authorship > CanonicalNameWithMarker w/out Authorship > CanonicalName > Genus + specificEpithet
+Capture the level at which resolution first occurs, then label it in a new field called resolutionType
+Note when multiple resolved names exist for a resolution, label this in a boolean TRUE/FALSE field called multMaps
+```{r eval=FALSE, include=FALSE}
+
+
+CNWM_A_Res_d <- CNWM_A_Res %>% 
+  distinct(canonicalnamewithmarker, authorship, relationName, canonicalnamewithmarker.1, .keep_all = TRUE)
+# Construct a new column of resolved names appended to our name_subset_table, pull in order of prefence as listed above
+name_resolved_table <- name_subset_table %>% 
+  mutate(resolvedName = case_when(CNWM_A_Res_d$relationName != "NONE" ~ paste(CNWM_A_Res_d$canonicalnamewithmarker.1)
+    
+  ))
+
+
+```
+Using SQL Coalesce
+```{r}
+# Bring in base parsed table. Remove noninformative fields 
+name_subset_table <- name_subset %>% 
+  select(!14:22) %>%  # removes excess fields
+  distinct(scientificname, type, canonicalnamecomplete, .keep_all = TRUE)
+
+# First, change all of the NONE values to NA (NOMER syntax Correction)
+CNWM_A_Res[CNWM_A_Res == "NONE"] <- NA
+CNWM_AWS_Res[CNWM_AWS_Res == "NONE"] <- NA
+CNWM_only_Res[CNWM_only_Res == "NONE"] <- NA
+CN_only_Res[CN_only_Res == "NONE"] <- NA
+SP_only_Res[SP_only_Res == "NONE"] <- NA
+# By default NOMER still returns a the original verbatim name inputted even when resolution fails. Change this syntax via a new field called resolvedNameCorrected by using a CASE statement to make it clear these are NOT resolutions.
+
+CNWM_A_Res <- sqldf("SELECT *,
+                     CASE
+                     WHEN relationName NOT NULL THEN resolvedName
+                     WHEN relationName ISNULL THEN NULL
+                     END AS resolvedNameCorrected
+                     FROM CNWM_A_Res")
+
+CNWM_AWS_Res <- sqldf("SELECT *,
+                     CASE
+                     WHEN relationName NOT NULL THEN resolvedName
+                     WHEN relationName ISNULL THEN NULL
+                     END AS resolvedNameCorrected
+                     FROM CNWM_AWS_Res")
+
+CNWM_only_Res <- sqldf("SELECT *,
+                     CASE
+                     WHEN relationName NOT NULL THEN resolvedName
+                     WHEN relationName ISNULL THEN NULL
+                     END AS resolvedNameCorrected
+                     FROM CNWM_only_Res")
+
+CN_only_Res <- sqldf("SELECT *,
+                     CASE
+                     WHEN relationName NOT NULL THEN resolvedName
+                     WHEN relationName ISNULL THEN NULL
+                     END AS resolvedNameCorrected
+                     FROM CN_only_Res")
+
+SP_only_Res <- sqldf("SELECT *,
+                     CASE
+                     WHEN relationName NOT NULL THEN resolvedName
+                     WHEN relationName ISNULL THEN NULL
+                     END AS resolvedNameCorrected
+                     FROM SP_only_Res")
+
+# Additional Mutation required for name_table_subset to match IDs with SP_only_Res: Combine genusOrAbove + specificEpithet 
+name_subset_table <- name_subset_table %>% 
+  unite('species', genusorabove:specificepithet, sep = " ")
+
+# Change the name of SP_only_Res to match 
+SP_only_Res <- SP_only_Res %>% 
+  rename(species = ID)
+
+
+# Now try using COALESCE METHOD in SQL 
+
+# First Combine our Tables....
+Combined_names <- sqldf("SELECT DISTINCT name_table.canonicalnamewithmarker AS canonicalNameWithMarker, first_res.relationName AS firstRelation, first_res.resolvedNameCorrected AS firstResolvedName, name_table.scientificname AS verbatimScientificName, second_res.relationName AS secondRelation, second_res.resolvedNameCorrected AS secondResolvedName, third_res.relationName AS thirdRelation, third_res.resolvedNameCorrected AS thirdResolvedName, fourth_res.relationName AS fourthRelation, fourth_res.resolvedNameCorrected AS fourthResolvedName, fifth_res.relationName AS fifthRelation, fifth_res.resolvedNameCorrected AS fifthResolvedName
+                                           FROM name_subset_table AS name_table
+                                           LEFT JOIN CNWM_A_Res AS first_res ON name_table.canonicalnamewithmarker = first_res.canonicalnamewithmarker
+                                           LEFT JOIN CNWM_AWS_Res AS second_res ON name_table.canonicalnamewithmarker = second_res.canonicalnamewithmarker
+                                           LEFT JOIN CNWM_only_Res AS third_res ON name_table.canonicalnamewithmarker = third_res.canonicalnamewithmarker
+                                           LEFT JOIN CN_only_Res AS fourth_res ON name_table.canonicalname = fourth_res.canonicalname
+                                           LEFT JOIN SP_only_Res AS fifth_res ON name_table.species = fifth_res.species")
+
+# Use COALESCE to Create a relationFound Field
+coalesced_names <- sqldf("SELECT verbatimScientificName, 
+                                  canonicalNameWithMarker, firstRelation, secondRelation, thirdRelation, fourthRelation, fifthRelation, firstResolvedName, secondResolvedName, thirdResolvedName, fourthResolvedName, fifthResolvedName,
+                          COALESCE(firstRelation, secondRelation, thirdRelation, fourthRelation, fifthRelation) relationFound
+                         
+                          FROM Combined_names")
+# Create a CASE statement to identify at which level relation was found using COALESCE via a field called whenRelationFound
+coalesced_org <- sqldf("SELECT *, 
+                       CASE 
+                       WHEN firstRelation NOT NULL THEN 'CNWMandAuthor'
+                       WHEN secondRelation NOT NULL THEN 'CNWMandAuthorWSP'
+                       WHEN thirdRelation NOT NULL THEN 'CNWMonly'
+                       WHEN fourthRelation NOT NULL THEN 'CNonly'
+                       WHEN fifthRelation NOT NULL THEN 'SPonly'
+                       END AS whenRelationFound
+                       FROM coalesced_names")
+
+# Create a CASE statement to identify what the final resolved Name should be via a field called finalResolution 
+coalesced_resolution <- sqldf("SELECT DISTINCT *, 
+                              CASE 
+                              WHEN whenRelationFound = 'CNWMandAuthor' THEN firstResolvedName
+                              WHEN whenRelationFound = 'CNWMandAuthorWSP' THEN secondResolvedName
+                              WHEN whenRelationFound = 'CNWMonly' THEN thirdResolvedName
+                              WHEN whenRelationFound = 'CNonly' THEN fourthResolvedName
+                              WHEN whenRelationFound = 'SPonly' THEN fifthResolvedName
+                              END AS finalResolution
+                              FROM coalesced_org")
+coalesced_resolution <- distinct(coalesced_resolution, verbatimScientificName, canonicalNameWithMarker, finalResolution, .keep_all = TRUE)
+
+# Now we need to identify where multiple mappings Occur, and whether resolution should even happen for these circumstances (i.e. is author needed?)
+coalesced_resolution <- coalesced_resolution %>% 
+  group_by(verbatimScientificName) %>% 
+  mutate(multipleMappings = case_when(
+    !n_distinct(finalResolution) == 1 ~ TRUE,
+    TRUE ~ FALSE))
+
+
+# Now look at when relation is found relative to coalescent resolution. If its found at the same time, this is uninformative and therefore 'bad' to keep
+multmaps <- coalesced_resolution %>% 
+  filter(multipleMappings == TRUE) %>% 
+  group_by(verbatimScientificName) %>% 
+  filter(!n_distinct(whenRelationFound) == 1) 
+# This never occurs, and therefore is ambigious so we're better off discluding these names. 
+
+# Test to see if multiple maps do indeed occur at the same whenRelationFound
+
+
+```
+
+```{r}
+# Check to see what names were dropped? 
+
+
+
+```
+
